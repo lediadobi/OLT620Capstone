@@ -40,3 +40,269 @@ view(makeup)
 view(pet)
 view(skincare)
 ```
+
+# Cleaning Datasets
+```{r clean, include=FALSE}
+
+#Converting characters into numeric 
+beauty_cleaned <- beauty %>%
+  mutate(
+    `Units.sold` = as.numeric(`Units.sold`),
+    `Dollar.Sales.UD` = as.numeric(`Dollar.Sales.UD`),
+    `Avg.Price.USD` = as.numeric(`Avg.Price.USD`),
+  )
+
+hair_cleaned <- hair %>%
+  mutate(
+    `Units.sold` = as.numeric(`Units.sold`),
+    `Dollar.Sales.UD` = as.numeric(`Dollar.Sales.UD`),
+    `Avg.Price.USD` = as.numeric(`Avg.Price.USD`),
+    `YOY...Change` = as.numeric(`YOY...Change`)
+  )
+
+household_cleaned <- household %>%
+  mutate(
+    `Units.sold` = as.numeric(`Units.sold`),
+    `Dollar.Sales.UD` = as.numeric(`Dollar.Sales.UD`),
+    `Avg.Price.USD` = as.numeric(`Avg.Price.USD`),
+    `YOY...Change` = as.numeric(`YOY...Change`)
+  )
+
+makeup_cleaned <- makeup %>%
+  mutate(
+    `Units.sold` = as.numeric(`Units.sold`),
+    `Dollar.Sales.UD` = as.numeric(`Dollar.Sales.UD`),
+    `Avg.Price.USD` = as.numeric(`Avg.Price.USD`),
+    `YOY...Change` = as.numeric(`YOY...Change`)
+  )
+
+pet_cleaned <- pet %>%
+  mutate(
+    `Units.sold` = as.numeric(`Units.sold`),
+    `Dollar.Sales.UD` = as.numeric(`Dollar.Sales.UD`),
+    `Avg.Price.USD` = as.numeric(`Avg.Price.USD`),
+    `YOY...Change` = as.numeric(`YOY...Change`)
+  )
+
+skincare_cleaned <- skincare %>%
+  mutate(
+    `Units.sold` = as.numeric(`Units.sold`),
+    `Dollar.Sales.UD` = as.numeric(`Dollar.Sales.UD`),
+    `Avg.Price.USD` = as.numeric(`Avg.Price.USD`),
+    `YOY...Change` = as.numeric(`YOY...Change`)
+  )
+```
+
+# Aggregate by year
+```{r aggregation, include=FALSE}
+# Hair
+# Group by both 'Year' and 'Category'
+hair_aggregated <- hair_cleaned %>%
+  group_by(Year, Category) %>%
+  summarize(
+    total_units_sold = sum(`Units.sold`, na.rm = TRUE),
+    total_dollar_sales = sum(`Dollar.Sales.UD`, na.rm = TRUE),
+    mean_avg_price = mean(`Avg.Price.USD`, na.rm = TRUE),
+    mean_yoy_change = mean(`YOY...Change`, na.rm = TRUE)
+  ) %>%
+  # Calculate the more accurate weighted average price
+  mutate(
+    weighted_avg_price = total_dollar_sales / total_units_sold
+  )
+
+view(aggregated_hair)
+
+# Beauty
+# Group by 'Year'
+beauty_aggregated <- beauty_cleaned %>%
+  group_by(Year) %>%
+  summarize(
+    total_units_sold = sum(`Units.sold`, na.rm = TRUE),
+    total_dollar_sales = sum(`Dollar.Sales.UD`, na.rm = TRUE),
+    mean_avg_price = mean(`Avg.Price.USD`, na.rm = TRUE),
+  ) %>%
+  # Add the 'Category' column with the value "Beauty"
+  mutate(
+    Category = "Beauty"
+  ) %>%
+  # Calculate the more accurate weighted average price
+  mutate(
+    weighted_avg_price = total_dollar_sales / total_units_sold
+  )
+
+
+# Household
+# Group by 'Year'
+household_aggregated <- household_cleaned %>%
+  group_by(Year) %>%
+  summarize(
+    total_units_sold = sum(`Units.sold`, na.rm = TRUE),
+    total_dollar_sales = sum(`Dollar.Sales.UD`, na.rm = TRUE),
+    mean_avg_price = mean(`Avg.Price.USD`, na.rm = TRUE),
+    mean_yoy_change = mean(`YOY...Change`, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    Category = "Household",
+    weighted_avg_price = total_dollar_sales / total_units_sold
+  )
+
+# Makeup
+# Group by 'Year'
+makeup_aggregated <- makeup_cleaned %>%
+  group_by(Year) %>%
+  summarize(
+    total_units_sold = sum(`Units.sold`, na.rm = TRUE),
+    total_dollar_sales = sum(`Dollar.Sales.UD`, na.rm = TRUE),
+    mean_avg_price = mean(`Avg.Price.USD`, na.rm = TRUE),
+    mean_yoy_change = mean(`YOY...Change`, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    Category = "Makeup",
+    weighted_avg_price = total_dollar_sales / total_units_sold
+  )
+
+# Pet
+# Group by 'Year'
+pet_aggregated <- pet_cleaned %>%
+  group_by(Year) %>%
+  summarize(
+    total_units_sold = sum(`Units.sold`, na.rm = TRUE),
+    total_dollar_sales = sum(`Dollar.Sales.UD`, na.rm = TRUE),
+    mean_avg_price = mean(`Avg.Price.USD`, na.rm = TRUE),
+    mean_yoy_change = mean(`YOY...Change`, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    Category = "Pet",
+    weighted_avg_price = total_dollar_sales / total_units_sold
+  )
+
+# Skincare
+# Group by 'Year'
+skincare_aggregated <- skincare_cleaned %>%
+  group_by(Year) %>%
+  summarize(
+    total_units_sold = sum(`Units.sold`, na.rm = TRUE),
+    total_dollar_sales = sum(`Dollar.Sales.UD`, na.rm = TRUE),
+    mean_avg_price = mean(`Avg.Price.USD`, na.rm = TRUE),
+    mean_yoy_change = mean(`YOY...Change`, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    Category = "Skincare",
+    weighted_avg_price = total_dollar_sales / total_units_sold
+  )
+```
+
+# View aggregated Datasets
+```{r view, include=FALSE}
+view(beauty_aggregated)
+view(hair_aggregated)
+view(pet_aggregated)
+view(skincare_aggregated)
+view(household_aggregated)
+view(makeup_aggregated)
+```
+
+# Reorder to make "Category" the second column
+```{r reorder, include=FALSE}
+#Hair
+hair_aggregated <- hair_aggregated %>%
+  select(Year, Category, everything())
+
+#Beauty
+beauty_aggregated <- beauty_aggregated %>%
+  select(Year, Category, everything())
+
+#Household
+household_aggregated <- household_aggregated %>%
+  select(Year, Category, everything())
+
+#Makeup
+makeup_aggregated <- makeup_aggregated %>%
+  select(Year, Category, everything())
+
+#Pet
+pet_aggregated <- pet_aggregated %>%
+  select(Year, Category, everything())
+
+#Skincare
+skincare_aggregated <- skincare_aggregated %>%
+  select(Year, Category, everything())
+
+```
+
+# Remove Column Mean YOY Change
+```{r remove mean_yoy_change, include=FALSE}
+
+#Hair
+hair_aggregated <- hair_aggregated %>%
+  select(-mean_yoy_change)
+
+#Household
+household_aggregated <- household_aggregated %>%
+  select(-mean_yoy_change)
+
+#Makeup
+makeup_aggregated <- makeup_aggregated %>%
+  select(-mean_yoy_change)
+
+#Pet
+pet_aggregated <- pet_aggregated %>%
+  select(-mean_yoy_change)
+
+#Skincare
+skincare_aggregated <- skincare_aggregated %>%
+  select(-mean_yoy_change)
+```
+
+# View Datasets to ensure previous steps are reflected properly
+```{r view, include=FALSE}
+view(beauty_aggregated)
+view(hair_aggregated)
+view(pet_aggregated)
+view(skincare_aggregated)
+view(household_aggregated)
+view(makeup_aggregated)
+```
+
+# Merge datasets
+```{r merge, include=FALSE}
+
+# Convert the 'Year' column to a character type in all dataframes
+beauty_aggregated <- beauty_aggregated %>%
+  mutate(Year = as.character(Year))
+
+hair_aggregated <- hair_aggregated %>%
+  mutate(Year = as.character(Year))
+
+pet_aggregated <- pet_aggregated %>%
+  mutate(Year = as.character(Year))
+
+skincare_aggregated <- skincare_aggregated %>%
+  mutate(Year = as.character(Year))
+
+household_aggregated <- household_aggregated %>%
+  mutate(Year = as.character(Year))
+
+makeup_aggregated <- makeup_aggregated %>%
+  mutate(Year = as.character(Year))
+
+# Merge all the dataframes into a single, comprehensive dataframe
+cpg <- bind_rows(
+  beauty_aggregated,
+  hair_aggregated,
+  pet_aggregated,
+  skincare_aggregated,
+  household_aggregated,
+  makeup_aggregated
+)
+
+# arrange the dataframe by Year and Category to make it easier to view
+cpg <- cpg %>%
+  arrange(Year, Category)
+
+view(cpg)
+```
