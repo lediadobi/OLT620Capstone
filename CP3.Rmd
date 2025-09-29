@@ -306,3 +306,58 @@ cpg <- cpg %>%
 
 view(cpg)
 ```
+
+# Import Autosales data, mutate it to fit other datasets conventions
+```{r import datasets, include=FALSE}
+auto <- read.csv("AutoSales.csv")
+view(auto)
+
+auto <- auto %>%
+  # Step 1: Extract the year from the 'observation_date' column
+  # and convert it to a character type for consistent merging later on
+  mutate(observation_date = as.character(year(as.Date(observation_date)))) %>%
+  
+  # Step 2: Add a new column 'Category' as the second column
+  # and fill it with the value "Auto"
+  add_column(Category = "Auto", .after = "observation_date") %>%
+  
+  # Step 3: Rename the column 'LAUTOSA' to 'total_units_sold'
+  # and multiple its values by 1,000,000 to convert to millions
+  mutate(total_units_sold = LAUTOSA * 1000000) %>%
+  select(-LAUTOSA) # Remove the old 'LAUTOSA' column
+view(auto)
+
+auto <- auto %>%
+  # Step 1: Rename the 'observation_date' column to 'Year'
+  rename(Year = observation_date) %>%
+  
+  # Step 2: Group by 'Year' and aggregate the data
+  group_by(Year, Category) %>%
+  summarize(
+    total_units_sold = sum(total_units_sold, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  
+  # Step 3: Filter for years between 2000 and 2024
+  # Ensure 'Year' is treated as a numeric variable for proper filtering
+  filter(as.numeric(Year) >= 2000 & as.numeric(Year) <= 2024)
+view(auto)
+```
+
+# Merge auto with cpg dataframe
+```{r import datasets, include=FALSE}
+# Convert the 'Year' column in the 'auto' dataframe to a character
+# to match the data type of the 'Year' column in the 'cpg' dataframe.
+auto <- auto %>%
+  mutate(Year = as.character(Year))
+
+# Now, use bind_rows() to combine the 'auto' and 'cpg' dataframes.
+# This stacks the rows from 'auto' on top of the rows from 'cpg'.
+all_data <- bind_rows(cpg, auto)
+
+# Arrange the final dataframe by year and category for better readability
+all_data <- all_data %>%
+  arrange(Year, Category)
+
+view(all_data)
+```
