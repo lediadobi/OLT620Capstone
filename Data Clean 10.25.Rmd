@@ -15,13 +15,42 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r libraries, include=TRUE}
 required_packages <- c("dplyr", "readr", "tidyverse", "lmtest", "lubridate", "glmnet", "pls", "readxl", "GGally", "boot", "scales", "ggthemes", "caret")
 install.packages(setdiff(required_packages, rownames(installed.packages())))
+invisible(lapply(required_packages, library, character.only = TRUE))
 ```
 
-## Changing Factor on Unemployment Data
+
+## Changing Date on Unemployment Data
 
 
 ```{r Unemployment Data clean up, include=TRUE}
-summary(cars)
+unemploy <- read.csv("Unemploy.csv")
+class(unemploy$observation_date)
+unemploy$observation_date <- ymd(unemploy$observation_date)
+class(unemploy$observation_date)
+unemploy$observation_date <- year(unemploy$observation_date)
+view(unemploy)
+```
+
+## Changing Names of Columns
+
+
+```{r renaming columns, include=TRUE}
+colnames(unemploy) <- c("Year", "Unemploy_Rate")
+head(unemploy)
+```
+
+## Group by Year, calculate mean of unemployment rate per year
+
+
+```{r grouping by year, include=TRUE}
+annual_unemploy <- unemploy %>%
+  group_by(Year) %>%
+  summarise(
+    Annual_Avg_Rate = mean(Unemploy_Rate, na.rm = TRUE)
+  )
+
+head(annual_unemploy)
+view(annual_unemploy)
 ```
 
 ## Aggregate years on Skincare and Makeup Data
@@ -29,7 +58,9 @@ summary(cars)
 You can also embed plots, for example:
 
 ```{r aaggregate years, include=TRUE}
-plot(pressure)
+skincare <- read.csv("Skincare.csv")
+makeup <- read.csv ("Makeup.csv")
+
 ```
 
 ## Change Axis on Skincare and Makeup Data
