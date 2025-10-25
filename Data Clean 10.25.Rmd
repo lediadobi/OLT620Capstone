@@ -1,0 +1,57 @@
+---
+title: "OLT Data Prep for Modeling"
+author: "Ledia Dobi"
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+
+```{r libraries, include=TRUE}
+required_packages <- c("dplyr", "readr", "tidyverse", "lmtest", "lubridate", "glmnet", "pls", "readxl", "GGally", "boot", "scales", "ggthemes", "caret")
+install.packages(setdiff(required_packages, rownames(installed.packages())))
+```
+
+## Changing Factor on Unemployment Data
+
+
+```{r Unemployment Data clean up, include=TRUE}
+summary(cars)
+```
+
+## Aggregate years on Skincare and Makeup Data
+
+You can also embed plots, for example:
+
+```{r aaggregate years, include=TRUE}
+plot(pressure)
+```
+
+## Change Axis on Skincare and Makeup Data
+
+You can also embed plots, for example:
+
+```{r axis change, include=TRUE}
+plot(pressure)
+```
+
+## Combine Unemployment, Skincare, and Makeup Data
+
+You can also embed plots, for example:
+
+```{r combine datasets, include=TRUE}
+plot(pressure)
+```
+
+## Create Dummy Variable for Recession Year
+
+You can also embed plots, for example:
+
+```{r dummy variable for recession, include=TRUE}
+plot(pressure)
+```
