@@ -128,7 +128,30 @@ view(skincare_wide)
 You can also embed plots, for example:
 
 ```{r combine datasets, include=TRUE}
-plot(pressure)
+# This combines the product sales columns side-by-side.
+combined_products <- full_join(skincare_wide, makeup_wide, by = "Year")
+
+# 2. Filter the annual_unemploy dataframe to only include 2010 and later
+unemploy_filtered <- annual_unemploy %>%
+  filter(Year >= 2010)
+
+# 3. Join the combined product sales (2010-2024) with the filtered unemployment data
+# Use a left_join to ensure we only keep the years 2010-2024 from the product data.
+final_filtered_df <- left_join(combined_products, unemploy_filtered, by = "Year")
+
+# Print the structure and first few rows of the final dataframe
+view(final_filtered_df)
+
+# Reorder the columns in the final_filtered_df
+final_filtered_df_reordered <- final_filtered_df %>%
+  select(
+    Year,                         
+    Annual_Avg_Rate,               
+    everything()                   
+  )
+
+# Print the first few rows to confirm the order
+view(final_filtered_df_reordered)
 ```
 
 ## Create Dummy Variable for Recession Year
@@ -136,5 +159,21 @@ plot(pressure)
 You can also embed plots, for example:
 
 ```{r dummy variable for recession, include=TRUE}
-plot(pressure)
+OLT_beauty <- final_filtered_df_reordered %>%
+  mutate(
+    # Create the dummy: 1 if Year is 2020, 0 otherwise
+    Recession.Dummy = ifelse(Year == 2020, 1, 0)
+  )
+
+# Reorder the columns to place the dummy variable next to Year and Annual_Avg_Rate
+OLT_beauty_partitioned <- OLT_beauty %>%
+  select(
+    Year,                          
+    Annual_Avg_Rate,               
+    Recession.Dummy,               
+    everything()                  
+  )
+
+# Print the first few rows to confirm the final order
+view(OLT_beauty_partitioned)
 ```
