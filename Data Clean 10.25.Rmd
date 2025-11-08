@@ -58,8 +58,30 @@ view(annual_unemploy)
 You can also embed plots, for example:
 
 ```{r aaggregate years, include=TRUE}
-skincare <- read.csv("Skincare.csv")
-makeup <- read.csv ("Makeup.csv")
+skincare <- read.csv("Skincare Products.csv")
+makeup <- read.csv ("Makeup Products.csv")
+
+
+skincare_agg <- skincare %>%
+  group_by(Category, Year) %>%
+  summarise(
+    Total.Dollar.Sales = sum(Dollar.Sales.UD, na.rm = TRUE), # Calculate the sum of dollar sales
+    .groups = 'drop' # Ungroup the data after summarizing
+  )%>%
+
+select(Year, Category, Total.Dollar.Sales)
+view(skincare_agg)
+
+makeup_agg <- makeup %>%
+  group_by(Category, Year) %>%
+  summarise(
+    Total.Dollar.Sales = sum(Dollar.Sales.UD, na.rm = TRUE), # Calculate the sum of dollar sales
+    .groups = 'drop' # Ungroup the data after summarizing
+  )%>%
+
+select(Year, Category, Total.Dollar.Sales)
+view(makeup_agg)
+
 
 ```
 
@@ -68,7 +90,37 @@ makeup <- read.csv ("Makeup.csv")
 You can also embed plots, for example:
 
 ```{r axis change, include=TRUE}
-plot(pressure)
+
+makeup_wide <- makeup_agg %>%
+  mutate(Year = as.numeric(as.character(Year))) %>%
+  filter(Year >= 2010, Year <= 2024) %>%
+  group_by(Year, Category) %>%
+  summarise(Total.Dollar.Sales = sum(Total.Dollar.Sales, na.rm = TRUE), .groups = "drop") %>%
+  complete(Year = 2010:2024, Category, fill = list(Total.Dollar.Sales = 0)) %>%
+  pivot_wider(
+    names_from  = Category,
+    values_from = Total.Dollar.Sales,
+    values_fill = 0
+  ) %>%
+  arrange(Year)
+
+view(makeup_wide)
+
+skincare_wide <- skincare_agg %>%
+  mutate(Year = as.numeric(as.character(Year))) %>%
+  filter(Year >= 2010, Year <= 2024) %>%
+  group_by(Year, Category) %>%
+  summarise(Total.Dollar.Sales = sum(Total.Dollar.Sales, na.rm = TRUE), .groups = "drop") %>%
+  complete(Year = 2010:2024, Category, fill = list(Total.Dollar.Sales = 0)) %>%
+  pivot_wider(
+    names_from  = Category,
+    values_from = Total.Dollar.Sales,
+    values_fill = 0
+  ) %>%
+  arrange(Year)
+
+view(skincare_wide)
+
 ```
 
 ## Combine Unemployment, Skincare, and Makeup Data
