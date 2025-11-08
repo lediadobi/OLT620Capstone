@@ -1,0 +1,140 @@
+---
+title: "OLT Data Prep for Modeling"
+author: "Ledia Dobi"
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+
+```{r libraries, include=TRUE}
+required_packages <- c("dplyr", "readr", "tidyverse", "lmtest", "lubridate", "glmnet", "pls", "readxl", "GGally", "boot", "scales", "ggthemes", "caret")
+install.packages(setdiff(required_packages, rownames(installed.packages())))
+invisible(lapply(required_packages, library, character.only = TRUE))
+```
+
+
+## Changing Date on Unemployment Data
+
+
+```{r Unemployment Data clean up, include=TRUE}
+unemploy <- read.csv("Unemploy.csv")
+class(unemploy$observation_date)
+unemploy$observation_date <- ymd(unemploy$observation_date)
+class(unemploy$observation_date)
+unemploy$observation_date <- year(unemploy$observation_date)
+view(unemploy)
+```
+
+## Changing Names of Columns
+
+
+```{r renaming columns, include=TRUE}
+colnames(unemploy) <- c("Year", "Unemploy_Rate")
+head(unemploy)
+```
+
+## Group by Year, calculate mean of unemployment rate per year
+
+
+```{r grouping by year, include=TRUE}
+annual_unemploy <- unemploy %>%
+  group_by(Year) %>%
+  summarise(
+    Annual_Avg_Rate = mean(Unemploy_Rate, na.rm = TRUE)
+  )
+
+head(annual_unemploy)
+view(annual_unemploy)
+```
+
+## Aggregate years on Skincare and Makeup Data
+
+You can also embed plots, for example:
+
+```{r aaggregate years, include=TRUE}
+skincare <- read.csv("Skincare Products.csv")
+makeup <- read.csv ("Makeup Products.csv")
+
+
+skincare_agg <- skincare %>%
+  group_by(Category, Year) %>%
+  summarise(
+    Total.Dollar.Sales = sum(Dollar.Sales.UD, na.rm = TRUE), # Calculate the sum of dollar sales
+    .groups = 'drop' # Ungroup the data after summarizing
+  )%>%
+
+select(Year, Category, Total.Dollar.Sales)
+view(skincare_agg)
+
+makeup_agg <- makeup %>%
+  group_by(Category, Year) %>%
+  summarise(
+    Total.Dollar.Sales = sum(Dollar.Sales.UD, na.rm = TRUE), # Calculate the sum of dollar sales
+    .groups = 'drop' # Ungroup the data after summarizing
+  )%>%
+
+select(Year, Category, Total.Dollar.Sales)
+view(makeup_agg)
+
+
+```
+
+## Change Axis on Skincare and Makeup Data
+
+You can also embed plots, for example:
+
+```{r axis change, include=TRUE}
+
+makeup_wide <- makeup_agg %>%
+  mutate(Year = as.numeric(as.character(Year))) %>%
+  filter(Year >= 2010, Year <= 2024) %>%
+  group_by(Year, Category) %>%
+  summarise(Total.Dollar.Sales = sum(Total.Dollar.Sales, na.rm = TRUE), .groups = "drop") %>%
+  complete(Year = 2010:2024, Category, fill = list(Total.Dollar.Sales = 0)) %>%
+  pivot_wider(
+    names_from  = Category,
+    values_from = Total.Dollar.Sales,
+    values_fill = 0
+  ) %>%
+  arrange(Year)
+
+view(makeup_wide)
+
+skincare_wide <- skincare_agg %>%
+  mutate(Year = as.numeric(as.character(Year))) %>%
+  filter(Year >= 2010, Year <= 2024) %>%
+  group_by(Year, Category) %>%
+  summarise(Total.Dollar.Sales = sum(Total.Dollar.Sales, na.rm = TRUE), .groups = "drop") %>%
+  complete(Year = 2010:2024, Category, fill = list(Total.Dollar.Sales = 0)) %>%
+  pivot_wider(
+    names_from  = Category,
+    values_from = Total.Dollar.Sales,
+    values_fill = 0
+  ) %>%
+  arrange(Year)
+
+view(skincare_wide)
+
+```
+
+## Combine Unemployment, Skincare, and Makeup Data
+
+You can also embed plots, for example:
+
+```{r combine datasets, include=TRUE}
+plot(pressure)
+```
+
+## Create Dummy Variable for Recession Year
+
+You can also embed plots, for example:
+
+```{r dummy variable for recession, include=TRUE}
+plot(pressure)
+```
