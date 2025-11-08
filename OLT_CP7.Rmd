@@ -55,8 +55,6 @@ view(annual_unemploy)
 
 ## Aggregate years on Skincare and Makeup Data
 
-You can also embed plots, for example:
-
 ```{r aaggregate years, include=TRUE}
 skincare <- read.csv("Skincare Products.csv")
 makeup <- read.csv ("Makeup Products.csv")
@@ -86,8 +84,6 @@ view(makeup_agg)
 ```
 
 ## Change Axis on Skincare and Makeup Data
-
-You can also embed plots, for example:
 
 ```{r axis change, include=TRUE}
 
@@ -125,7 +121,6 @@ view(skincare_wide)
 
 ## Combine Unemployment, Skincare, and Makeup Data
 
-You can also embed plots, for example:
 
 ```{r combine datasets, include=TRUE}
 # This combines the product sales columns side-by-side.
@@ -156,7 +151,6 @@ view(final_filtered_df_reordered)
 
 ## Create Dummy Variable for Recession Year
 
-You can also embed plots, for example:
 
 ```{r dummy variable for recession, include=TRUE}
 OLT_beauty <- final_filtered_df_reordered %>%
