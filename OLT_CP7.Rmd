@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 ```{r libraries, include=TRUE}
-required_packages <- c("dplyr", "readr", "tidyverse", "lmtest", "lubridate", "glmnet", "pls", "readxl", "GGally", "boot", "scales", "ggthemes", "caret")
+required_packages <- c("dplyr", "readr", "tidyverse", "lmtest", "lubridate", "glmnet", "pls", "readxl", "GGally", "boot", "scales", "ggthemes", "car", "caret")
 install.packages(setdiff(required_packages, rownames(installed.packages())))
 invisible(lapply(required_packages, library, character.only = TRUE))
 ```
@@ -175,3 +175,90 @@ combined_df <- combined_df %>%
 
 view(combined_df)
 ```
+
+
+## Checking for Skewness and Non-Normality
+
+
+```{r checks, include=TRUE}
+#checking skew for each variable
+
+#Define the columns to be analyzed (your dependent/sales variables)
+sales_cols <- combined_df %>%
+  select(-Year, -Recession_Year, -Annual_Avg_Rate) %>% 
+  names()
+
+# Ensure all sales columns are numeric before plotting/analysis
+combined_df <- combined_df %>%
+  mutate(across(all_of(sales_cols), as.numeric))
+
+# Loop through each sales column to generate and print a separate histogram
+for (col_name in sales_cols) {
+  
+  # The !!sym() ensures ggplot uses the string stored in col_name as the variable name
+  plot <- ggplot(combined_df, aes(x = !!sym(col_name))) +
+    geom_histogram(bins = 15, fill = "lightcoral", color = "black") +
+    labs(
+      title = paste("Distribution of Raw Sales:", col_name),
+      x = paste("Dollar Sales (", col_name, ")"),
+      y = "Frequency"
+    ) +
+    theme_minimal() +
+    #Use label_comma() to display full numbers
+    scale_x_continuous(labels = scales::label_comma())
+  
+  # Print the plot to the R plot window
+  print(plot)
+}
+
+
+```
+
+## Transformation: Natural Log Transformation on dependent sales variables
+
+
+```{r logging, include=TRUE}
+
+
+# Define the columns to be log-transformed
+# We select all columns EXCEPT the non-sales/predictor variables.
+sales_cols <- combined_df %>%
+  select(-Year, -Recession_Year, -Annual_Avg_Rate) %>% 
+  names()
+
+# Apply the log transformation to all sales columns
+combined_df <- combined_df %>%
+  mutate(
+    # The .fns = list() argument names the new columns with 'Log_' prefix
+    across(
+      .cols = all_of(sales_cols),
+      .fns = ~log(as.numeric(.)),
+      .names = "Log_{.col}"
+    )
+  )
+
+# View the structure to confirm the new columns were added
+view(combined_df)
+
+```
+
+## Testing for Multicollinearity - seems to be not a problem
+
+
+```{r VIF check, include=TRUE}
+#standardize Annual Unemployment Rate
+combined_df <- combined_df %>%
+  mutate(
+    # Create a new standardized (Z-score) column for the rate
+    Annual_Avg_Rate_Z = scale(Annual_Avg_Rate)
+  )
+
+view(combined_df)
+
+# Run a placeholder model (using a log sales column and your standardized predictors)
+temp_model <- lm(Log_Lipstick ~ Annual_Avg_Rate_Z + Recession_Year, data = combined_df)
+
+# Calculate the VIF
+vif(temp_model)
+```
+
