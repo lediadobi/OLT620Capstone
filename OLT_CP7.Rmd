@@ -56,18 +56,22 @@ view(annual_unemploy)
 ## Aggregate years on Skincare and Makeup Data
 
 ```{r aaggregate years, include=TRUE}
-skincare <- read.csv("Skincare Products.csv")
+skincare <- read.csv("All Dates Skincare.csv")
 makeup <- read.csv ("Makeup Products.csv")
+view(skincare)
 
-
+#cleaning up due to $ character
 skincare_agg <- skincare %>%
-  group_by(Category, Year) %>%
+  mutate(
+    Dollar.Sales.UD = gsub("[$,]", "", Dollar.Sales.UD), # Remove $ and ,
+    Dollar.Sales.UD = as.numeric(Dollar.Sales.UD)        # Convert to number
+  ) %>%
+group_by(Category, Year) %>%
   summarise(
-    Total.Dollar.Sales = sum(Dollar.Sales.UD, na.rm = TRUE), # Calculate the sum of dollar sales
-    .groups = 'drop' # Ungroup the data after summarizing
-  )%>%
+    Total.Dollar.Sales = sum(Dollar.Sales.UD, na.rm = TRUE), # Aggregates sales
+    .groups = 'drop'
+  )
 
-select(Year, Category, Total.Dollar.Sales)
 view(skincare_agg)
 
 makeup_agg <- makeup %>%
@@ -89,10 +93,14 @@ view(makeup_agg)
 
 makeup_wide <- makeup_agg %>%
   mutate(Year = as.numeric(as.character(Year))) %>%
-  filter(Year >= 2010, Year <= 2024) %>%
   group_by(Year, Category) %>%
+  # The summarise step is redundant here if makeup_agg is already aggregated, 
+  # but we'll keep it to ensure data integrity.
   summarise(Total.Dollar.Sales = sum(Total.Dollar.Sales, na.rm = TRUE), .groups = "drop") %>%
-  complete(Year = 2010:2024, Category, fill = list(Total.Dollar.Sales = 0)) %>%
+  # Complete uses min() and max() to include all years found in the data
+  complete(Year = min(Year, na.rm = TRUE):max(Year, na.rm = TRUE), 
+           Category, 
+           fill = list(Total.Dollar.Sales = 0)) %>%
   pivot_wider(
     names_from  = Category,
     values_from = Total.Dollar.Sales,
@@ -104,10 +112,14 @@ view(makeup_wide)
 
 skincare_wide <- skincare_agg %>%
   mutate(Year = as.numeric(as.character(Year))) %>%
-  filter(Year >= 2010, Year <= 2024) %>%
   group_by(Year, Category) %>%
+  # The summarise step is redundant here if skincare_agg is already aggregated, 
+  # but we'll keep it to ensure data integrity.
   summarise(Total.Dollar.Sales = sum(Total.Dollar.Sales, na.rm = TRUE), .groups = "drop") %>%
-  complete(Year = 2010:2024, Category, fill = list(Total.Dollar.Sales = 0)) %>%
+  # Complete uses min() and max() to include all years found in the data
+  complete(Year = min(Year, na.rm = TRUE):max(Year, na.rm = TRUE), 
+           Category, 
+           fill = list(Total.Dollar.Sales = 0)) %>%
   pivot_wider(
     names_from  = Category,
     values_from = Total.Dollar.Sales,
@@ -123,51 +135,43 @@ view(skincare_wide)
 
 
 ```{r combine datasets, include=TRUE}
-# This combines the product sales columns side-by-side.
-combined_products <- full_join(skincare_wide, makeup_wide, by = "Year")
-
-# 2. Filter the annual_unemploy dataframe to only include 2010 and later
-unemploy_filtered <- annual_unemploy %>%
-  filter(Year >= 2010)
-
-# 3. Join the combined product sales (2010-2024) with the filtered unemployment data
-# Use a left_join to ensure we only keep the years 2010-2024 from the product data.
-final_filtered_df <- left_join(combined_products, unemploy_filtered, by = "Year")
-
-# Print the structure and first few rows of the final dataframe
-view(final_filtered_df)
-
-# Reorder the columns in the final_filtered_df
-final_filtered_df_reordered <- final_filtered_df %>%
+combined_df <- skincare_wide %>%
+  # 1. Join skincare_wide and makeup_wide. full_join keeps all years from both.
+  full_join(makeup_wide, by = "Year") %>%
+  # 2. Join the product data with the unemployment data.
+  #    left_join keeps all years from the previous step. Years not found 
+  #    in annual_unemploy (like pre-2010) will have NA for the rate.
+  left_join(annual_unemploy, by = "Year") %>%
+  # Optional: Reorder columns to place Year and Rate first
   select(
-    Year,                         
-    Annual_Avg_Rate,               
-    everything()                   
+    Year,
+    Annual_Avg_Rate, # Assuming this is the unemployment column name
+    everything()
   )
 
-# Print the first few rows to confirm the order
-view(final_filtered_df_reordered)
+view(combined_df)
 ```
 
 ## Create Dummy Variable for Recession Year
 
 
 ```{r dummy variable for recession, include=TRUE}
-OLT_beauty <- final_filtered_df_reordered %>%
+combined_df <- combined_df %>%
+  # Use mutate and ifelse or case_when to create the dummy variable
   mutate(
-    # Create the dummy: 1 if Year is 2020, 0 otherwise
-    Recession.Dummy = ifelse(Year == 2020, 1, 0)
-  )
-
-# Reorder the columns to place the dummy variable next to Year and Annual_Avg_Rate
-OLT_beauty_partitioned <- OLT_beauty %>%
+    Recession_Year = case_when(
+      Year == 2001 ~ 1,
+      Year >= 2007 & Year <= 2009 ~ 1,
+      Year == 2020 ~ 1,
+      TRUE ~ 0 # Assign 0 to all other years
+    )
+  ) %>%
+  # Reorder the columns to place Recession_Year next to Year
   select(
-    Year,                          
-    Annual_Avg_Rate,               
-    Recession.Dummy,               
-    everything()                  
+    Year,
+    Recession_Year,
+    everything()
   )
 
-# Print the first few rows to confirm the final order
-view(OLT_beauty_partitioned)
+view(combined_df)
 ```
