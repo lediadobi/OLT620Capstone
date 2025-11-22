@@ -463,3 +463,74 @@ cat("Model: ln(Units_Sold) ~ Recession + z_Annual_Avg_Rate (Current) + z_Annual_
 print(category_specific_impacts_mlr_lagged_2yr, n = Inf) 
 
 ```
+
+#MLR with Avg Price
+
+In controlling for average price we found:
+
+lip pencil: significant counter-cyclical jump - unit sales are 24.7% higher in a recession year, independent of price and unemployment severity. strong signal of "little luxuries".
+
+eyeshadow: high sensitivity to unemployment (pro-cyclical) - 14.9% drop in unit sales
+
+concealor: significant sensitivity: one standard deviation from in unemployment causes 10.5% drop, also pro-cyclical but less sensitive than eyeshadow.
+
+exfoilants: remain significantly counter-cyclical - 7% increase in one standard deviation in unemployment. consumers may be turning to exfoilants instead of facials or spa extractions during economic turmoil.
+
+Primer is now insignificant(how?)
+
+
+```{r MLR with avg price-, include=TRUE}
+combined_df_price_model <- combined_df %>%
+  # Clean all names using janitor
+  clean_names() %>%
+  
+  # Manually rename key columns (required for consistency)
+  rename(
+    category = category,
+    recession = recession,
+    z_annual_avg_rate = z_annual_avg_rate,
+    ln_units_sold = ln_units_sold
+  ) %>%
+  
+  # *** CRITICAL: Calculate Log Average Price (The Micro Control Variable) ***
+  mutate(
+    # Assumes 'avg_price' is the clean name for the price column
+    ln_avg_price = log(avg_price) 
+  ) 
+
+
+
+# Goal: ln_Units_Sold ~ Recession + z_Annual_Avg_Rate (Current) + ln(Avg_Price) separately for each unique Category.
+
+category_specific_impacts_price_model <- combined_df_price_model %>%
+  
+  # Group the data by the Category column
+  group_by(category) %>%
+  # Use nest() to prepare the data for split-apply-combine
+  nest() %>%
+  
+  # Apply the Multiple Linear Model to each nested data frame
+  mutate(
+    # FORMULA: Current macro variables + price control
+    model = map(data, ~ lm(ln_units_sold ~ recession + z_annual_avg_rate + ln_avg_price, data = .x)),
+    results = map(model, tidy)
+  ) %>%
+  
+  # Unnest and filter the results
+  unnest(results) %>%
+  # FILTER UPDATE: Filtering for all three main terms + price
+  filter(term %in% c("recession", "z_annual_avg_rate", "ln_avg_price")) %>%
+  select(
+    Category = category, 
+    Independent_Variable = term,
+    Coefficient = estimate,
+    Std_Error = std.error,
+    P_Value = p.value
+  )
+
+cat("\n--- Category-Specific MLR Impact (Model with Price Control) ---\n")
+cat("Model: ln(Units_Sold) ~ Recession + z_Annual_Avg_Rate (Current) + ln(Avg_Price)\n")
+print(category_specific_impacts_price_model, n = Inf) 
+
+
+```
