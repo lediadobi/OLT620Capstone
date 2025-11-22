@@ -1,0 +1,465 @@
+---
+title: "OLT_CP8"
+author: "Ledia Dobi"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+
+```{r libraries, include=TRUE}
+required_packages <- c("dplyr", "readr", "tidyverse", "broom", "lmtest", "janitor", "lubridate", "glmnet", "pls", "readxl", "GGally", "boot", "scales", "ggthemes", "car", "caret")
+install.packages(setdiff(required_packages, rownames(installed.packages())))
+invisible(lapply(required_packages, library, character.only = TRUE))
+```
+
+
+## Changing Date on Unemployment Data
+
+
+```{r Unemployment Data clean up, include=TRUE}
+unemploy <- read.csv("Unemploy.csv")
+class(unemploy$observation_date)
+unemploy$observation_date <- ymd(unemploy$observation_date)
+class(unemploy$observation_date)
+unemploy$observation_date <- year(unemploy$observation_date)
+view(unemploy)
+```
+
+## Changing Names of Columns
+
+
+```{r renaming columns, include=TRUE}
+colnames(unemploy) <- c("Year", "Unemploy_Rate")
+head(unemploy)
+```
+
+## Group by Year, calculate mean of unemployment rate per year
+
+
+```{r grouping by year, include=TRUE}
+annual_unemploy <- unemploy %>%
+  group_by(Year) %>%
+  summarise(
+    Annual_Avg_Rate = mean(Unemploy_Rate, na.rm = TRUE)
+  )
+
+head(annual_unemploy)
+```
+
+## Load in product categories dataframe
+
+
+```{r product categories, include=TRUE}
+products <- read.csv("product_categories.csv")
+
+view(products)
+```
+
+## Left Join
+
+
+```{r joining annual_unemploy and products, include=TRUE}
+
+combined_df <- products %>%
+  left_join(annual_unemploy, by = "Year")
+
+head(combined_df)
+
+# Check the dimensions to ensure no rows were lost from the products data
+dim(combined_df)
+```
+
+## Add in Recession Year Dummy Variable
+
+
+```{r recession dummy variable, include=TRUE}
+
+# Note: 2007 is included because the Great Recession began in December 2007.
+recession_years <- c(2001, 2007, 2008, 2009, 2020)
+
+
+combined_df <- combined_df %>%
+  mutate(
+    Recession = case_when(
+      Year %in% recession_years ~ 1,
+      TRUE ~ 0
+    )
+  )
+
+# Quick check of the new variable (optional, but highly recommended)
+# This shows the unique years and their new Recession status
+combined_df %>%
+  select(Year, Recession) %>%
+  distinct() %>%
+  arrange(Year)
+```
+
+## Re-arrange columns
+
+
+```{r arranging columns, include=TRUE}
+
+combined_df <- combined_df %>%
+  select(
+    Year,
+    Recession,
+    Annual_Avg_Rate,
+    everything()
+  )
+
+# View the first few rows to confirm the new column order
+head(combined_df)
+
+#export
+write.csv(combined_df, "C:\\Users\\dobil\\Downloads\\combined.csv", row.names=TRUE)
+
+```
+
+## Logging Units Sold and Standardizing Unemployment Rate
+
+```{r logging units sold and standardizing unemployment rate, include=TRUE}
+
+# Create the final variables needed for regression within the combined_df.
+combined_df <- combined_df %>%
+  # The log transformation is applied to interpret the coefficients as percentage changes.
+  mutate(
+    ln_Units_Sold = log(Units_Sold)
+  ) %>%
+  # Standardization (Z-score) is applied to make the coefficient interpretable as the percentage change in Units_Sold for a one standard deviation change in the rate.
+  mutate(
+    z_Annual_Avg_Rate = as.numeric(scale(Annual_Avg_Rate))
+  )
+```
+
+
+## Simple Linear Regression with Recession Dummy Variable and SLR with Avg Unemployment Rate
+
+```{r SLR with Recession Dummy Variable, include=TRUE}
+
+# This model tests the fixed, average percentage difference between recession (Recession=1) and non-recession (Recession=0) years on unit sales.
+slr_recession <- lm(ln_Units_Sold ~ Recession, data = combined_df)
+
+# Extract and display results
+recession_results <- tidy(slr_recession) %>%
+  filter(term == "Recession") %>% # Keep only the coefficient of interest (Beta 1)
+  mutate(Model = "SLR - Recession Dummy") %>%
+  select(Model, Independent_Variable = term, Coefficient = estimate, Std_Error = std.error, P_Value = p.value)
+cat("\n--- Results for Recession Dummy Model ---\n")
+print(recession_results)
+```
+
+```{r SLR with Avg Unemployment Rate, include=TRUE}
+
+# This model tests the sensitivity of unit sales to economic severity (measured in standard deviations of the unemployment rate).
+slr_unemployment <- lm(ln_Units_Sold ~ z_Annual_Avg_Rate, data = combined_df)
+
+# Extract and display results
+unemployment_results <- tidy(slr_unemployment) %>%
+  filter(term == "z_Annual_Avg_Rate") %>% # Keep only the coefficient of interest (Beta 1)
+  mutate(Model = "SLR - Standardized Unemployment") %>%
+  select(Model, Independent_Variable = term, Coefficient = estimate, Std_Error = std.error, P_Value = p.value)
+cat("\n--- Results for Standardized Unemployment Model ---\n")
+print(unemployment_results)
+```
+
+
+## SLR Final Results Table
+Interpreting the results: in a year classified as a recession, the unit sales are 0.115% lower compared to a non-recession year, holding all else constant.This, in addition to the p-value being high, means we cannot reject the null hypothesis and there is no statistically significant difference in average unit sales volume between recession years and non-recession years across all products. when looking at annual average rate of unemployment, it has a similar conclusion. One standard deviation increase in annual average unemployment rate is associated with a 0.292% decrease in unit sales. Additionally, the p-value is high so there is no significant evidence that unit sales are sensitive to annual unemployment rate.
+
+In our next models, we will bring in an analysis of product categories. 
+
+
+```{r SLR results table, include=TRUE}
+
+SLR_final_results_table <- bind_rows(recession_results, unemployment_results)
+
+cat("\n--- Combined Final Results Table ---\n")
+print(SLR_final_results_table)
+
+# Print the full summaries for detailed diagnostics
+cat("\n--- Full Summary: Recession Dummy Model ---\n")
+summary(slr_recession)
+cat("\n--- Full Summary: Standardized Unemployment Model ---\n")
+summary(slr_unemployment)
+```
+
+
+## SLR Within-Category Regression, only with Recession Dummy Variable
+
+Interpretation: Coefficient is the percentage change in Units Sold for the Category during a Recession Year vs. a Non-Recession Year.
+
+Most have very high p-values, showing that the results are not statistically significant. However, primer sees a 23% change in units sold during recessions and the p-value is 0.06.
+
+The following had high p-values and are not statistically significant:
+
+1. The Strongest Counter-Cyclical Tendency (The "Treat" Products)
+
+The largest positive (counter-cyclical) effects belong to:
+
+    Serums (Coefficient: +0.0937): This implies unit sales are nearly 9.4% higher in a recession year.
+
+    Additional Treatments (Coefficient: +0.0813): Sales are over 8.1% higher.
+
+Economic Insight: These products (Serums, Treatments, and Face Masks) are often seen as affordable luxuries or substitutes for higher-cost professional services (like facials). Consumers may use these items to maintain their routine and boost morale without the big expense of a spa visit, exhibiting the classic "Lipstick Effect."
+
+2. The Strongest Pro-Cyclical Tendency (The "Cutback" Products)
+
+The largest negative (pro-cyclical) effect belongs to:
+
+    Laser Masks (Coefficient: -0.1149): Unit sales are estimated to be 11.5% lower in a recession year.
+
+Economic Insight: Given the negative 11.5% magnitude, this suggests Laser Masks are perceived as a discretionary, high-ticket item. When budgets are tight, consumers are most likely to defer or eliminate the purchase of these higher-cost gadgets or treatments. This category is the most vulnerable to a recession.
+
+3. Maintenance Products Show Insignificant Drop
+
+Core maintenance products like Cleanser and Hydration Products show small, negative, and insignificant coefficients. This suggests they are relatively inelastic (stable) across the business cycle. Consumers still need to wash and moisturize, but they might switch to cheaper brands or buy less frequently.
+
+```{r SLR within categories, include=TRUE}
+
+category_specific_impacts <- combined_df %>%
+  # 3a. Group the data by the Category column
+  group_by(Category) %>%
+  # 3b. Use nest() to create a list column of data frames, one for each category
+  nest() %>%
+  # 3c. Use mutate and map to apply the linear model (lm) to each nested data frame
+  mutate(
+    # The map function runs lm for each category's data and saves the model object
+    model = map(data, ~ lm(ln_Units_Sold ~ Recession, data = .x)),
+    # The second map function runs tidy() on each model object to extract coefficients
+    results = map(model, tidy)
+  ) %>%
+  # 3d. Unnest the results to create a single data frame
+  unnest(results) %>%
+  # 3e. Filter for the coefficient of interest (Recession) and clean up
+  filter(term == "Recession") %>%
+  select(
+    Category,
+    Coefficient_Recession_Effect = estimate,
+    Std_Error = std.error, 
+    P_Value = p.value      
+  )
+
+#Extract and Display Category-Specific Results
+cat("\n--- Category-Specific Recession Impact (Within-Category SLR) ---\n")
+cat("Interpretation: Coefficient is the percentage change in Units Sold for the Category during a Recession Year vs. a Non-Recession Year.\n")
+print(category_specific_impacts, n = Inf) # n=Inf prints all rows
+
+```
+
+
+## MLR Interaction Term Regression
+
+Recession term (δ): This will show the recession effect for your base (reference) category (R will automatically pick the alphabetically first category as the reference).
+
+Recession:factor(CategoryX) terms (θi): These are the difference-in-differences coefficients. They tell you how much the recession effect for Category X differs from the recession effect of the base category.
+
+
+```{r MLR interaction term, include=TRUE}
+
+# This model includes an interaction term (Recession * factor(Category)) to estimate a unique recession effect for every product category.
+mlr_interaction_effects <- lm(ln_Units_Sold ~ Recession * factor(Category), data = combined_df)
+
+interaction_results <- tidy(mlr_interaction_effects) %>%
+  # Filter for the main 'Recession' term and all 'Recession:factor(Category)' interaction terms
+  filter(grepl("Recession", term)) %>%
+  mutate(Model = "MLR - Interaction Effects (Category-Specific)") %>%
+  select(Model, Independent_Variable = term, Coefficient = estimate, Std_Error = std.error, P_Value = p.value)
+
+
+cat("\n--- Results for Interaction Effects Model (Category-Specific Impacts) ---\n")
+print(interaction_results)
+
+```
+
+
+## MLR with Recession Dummy Variable and Avg_Annual_Rate within categories
+
+Significant Results:
+
+Primer in a recession year - primer sales are 25.2$ higher in a recession year even after controlling for unemployment. (Counter-Cyclical). The 25.2% increase is the strongest, most significant effect in the entire analysis. This strongly confirms Primer's role as a "counter-cyclical" product—an affordable indulgence that consumers turn to when cutting back on larger purchases. Strategy: Aggressively market and stock Primer during economic downturns.
+
+Eyeshadow (most unemployment-sensitive product) - one standard deviation increase in unemployment leads to a 14.54% drop in eyeshadow sales.
+
+Exfoiliants - one standard deviation increase in unemployment leads to a 6.96% increase in exfoiliant sales.This supports one of our hypotheses that skincare that is meant to "treat" increases during times of economic instability. 
+
+Concealer - one standard deviation increase in unemployment leads to a 9.98% drop in concealer sales. 
+
+```{r MLR within categories, include=TRUE}
+category_specific_impacts_mlr <- combined_df %>%
+  # 3a. Group the data by the Category column
+  group_by(Category) %>%
+  # 3b. Use nest() to create a list column of data frames, one for each category
+  nest() %>%
+  # 3c. Use mutate and map to apply the Multiple Linear Model (lm) to each nested data frame
+  mutate(
+    # *** KEY CHANGE: Formula now includes both Recession and z_Annual_Avg_Rate ***
+    model = map(data, ~ lm(ln_Units_Sold ~ Recession + z_Annual_Avg_Rate, data = .x)),
+    # The second map function runs tidy() on each model object to extract coefficients
+    results = map(model, tidy)
+  ) %>%
+  # 3d. Unnest the results to create a single data frame
+  unnest(results) %>%
+  # 3e. Filter for the coefficients of interest (Recession and z_Annual_Avg_Rate) and clean up
+  filter(term %in% c("Recession", "z_Annual_Avg_Rate")) %>%
+  select(
+    Category,
+    Independent_Variable = term,
+    Coefficient = estimate,
+    Std_Error = std.error,
+    P_Value = p.value
+  )
+
+cat("\n--- Category-Specific MLR Impact (Within-Category Regression) ---\n")
+cat("Model: ln(Units_Sold) ~ Recession + z_Annual_Avg_Rate, run separately for each category.\n")
+print(category_specific_impacts_mlr, n = Inf) # n=Inf prints all rows
+
+
+```
+
+## MLR with lagged unemployment
+Goal: A change in unemployment may not affect consumer spending until the following year (or even a couple years after); this model tests for a lagged effect of the economy on sales.
+
+Did not produce any significant results. This suggests that the impact of unemployment on these product categories is immediate and not delayed by 1 year.
+
+```{r MLR lagged unemployment 1 year, include=TRUE}
+# This step ensures they are all lowercase for the model.
+
+combined_df <- combined_df %>%
+  # FIRST: Clean all names using janitor (to handle hidden spaces/symbols)
+  clean_names() %>%
+  
+  # SECOND: Manually rename the final key columns to guarantee the names needed for the MLR
+  # This step ensures that even if 'clean_names' failed to propagate, the variables 
+  # used in the model are 100% defined.
+  rename(
+    category = category,
+    recession = recession,
+    z_annual_avg_rate = z_annual_avg_rate,
+    ln_units_sold = ln_units_sold
+  )
+
+# We assume combined_df now contains the prepared columns:'category', 'ln_units_sold', 'recession', and 'z_annual_avg_rate' (all lowercase).
+
+combined_df <- combined_df %>%
+  # *** NEW STEP: Create the Lagged Unemployment Variable ***
+  # Lagging must be done WITHIN each product category to avoid mixing years across products
+  group_by(category) %>% 
+  mutate(
+    # Lag 1: Shift the current year's standardized rate to the next year's row
+    # This aligns the rate from year t-1 with sales from year t.
+    z_annual_avg_rate_lag1 = lag(z_annual_avg_rate, n = 1, default = NA) 
+  ) %>%
+  ungroup()
+
+
+# 3. Run Within-Category MLR 1 year lag
+
+# Goal: Run the full MLR: ln_Units_Sold ~ Recession + z_Annual_Avg_Rate (Current) + z_Annual_Avg_Rate_Lag1 separately for each unique Category.
+
+category_specific_impacts_mlr_lagged <- combined_df %>%
+  # Filter out rows where lagged data is missing (typically the first year of each category)
+  filter(!is.na(z_annual_avg_rate_lag1)) %>%
+  
+  # Group the data by the Category column
+  group_by(category) %>%
+  # Use nest() to prepare the data for split-apply-combine
+  nest() %>%
+  
+  # Apply the Multiple Linear Model to each nested data frame
+  mutate(
+    model = map(data, ~ lm(ln_units_sold ~ recession + z_annual_avg_rate + z_annual_avg_rate_lag1, data = .x)),
+    results = map(model, tidy)
+  ) %>%
+  
+  # Unnest and filter the results
+  unnest(results) %>%
+  filter(term %in% c("recession", "z_annual_avg_rate", "z_annual_avg_rate_lag1")) %>%
+  select(
+    Category = category, 
+    Independent_Variable = term,
+    Coefficient = estimate,
+    Std_Error = std.error,
+    P_Value = p.value
+  )
+
+
+cat("\n--- Category-Specific MLR Impact with Lagged Unemployment (V2) ---\n")
+cat("Model: ln(Units_Sold) ~ Recession + z_Annual_Avg_Rate (Current) + z_Annual_Avg_Rate_Lag1 (Previous Year)\n")
+print(category_specific_impacts_mlr_lagged, n = Inf) 
+```
+
+#MLR 2 year lag unemployment
+
+Statistically significant for skin primer, high unemployment two years ago results in a 14.8% increase in skin primer sales today.
+
+```{r MLR lagged unemployment 2 year, include=TRUE}
+combined_df_lag2 <- combined_df %>%
+  # Clean all names using janitor
+  clean_names() %>%
+  
+  # Manually rename key columns (required for consistency)
+  rename(
+    category = category,
+    recession = recession,
+    z_annual_avg_rate = z_annual_avg_rate,
+    ln_units_sold = ln_units_sold
+  )
+
+
+combined_df_lag2 <- combined_df_lag2 %>%
+  
+  # *** NEW STEP: Create the Lagged Unemployment Variable (n=2) ***
+  # Lagging must be done WITHIN each product category
+  group_by(category) %>% 
+  mutate(
+    # Lag 2: Shift the standardized rate back by TWO years (n=2)
+    # This aligns the rate from year t-2 with sales from year t.
+    z_annual_avg_rate_lag2 = lag(z_annual_avg_rate, n = 2, default = NA) 
+  ) %>%
+  ungroup()
+
+
+# Run Within-Category MLR 2-Year Lag
+# Goal: Run the full MLR: ln_Units_Sold ~ Recession + z_Annual_Avg_Rate (Current) + z_Annual_Avg_Rate_Lag2  separately for each unique Category.
+
+category_specific_impacts_mlr_lagged_2yr <- combined_df_lag2 %>%
+  # Filter out rows where lagged data is missing (first two years of each category are removed)
+  filter(!is.na(z_annual_avg_rate_lag2)) %>%
+  
+  # Group the data by the Category column
+  group_by(category) %>%
+  # Use nest() to prepare the data for split-apply-combine
+  nest() %>%
+  
+  # Apply the Multiple Linear Model to each nested data frame
+  mutate(
+    # FORMULA CHANGE: Using z_annual_avg_rate_lag2 
+    model = map(data, ~ lm(ln_units_sold ~ recession + z_annual_avg_rate + z_annual_avg_rate_lag2, data = .x)),
+    results = map(model, tidy)
+  ) %>%
+  
+  # Unnest and filter the results
+  unnest(results) %>%
+  # FILTER CHANGE: Filtering for the new lagged term
+  filter(term %in% c("recession", "z_annual_avg_rate", "z_annual_avg_rate_lag2")) %>%
+  select(
+    Category = category, 
+    Independent_Variable = term,
+    Coefficient = estimate,
+    Std_Error = std.error,
+    P_Value = p.value
+  )
+
+
+
+cat("\n--- Category-Specific MLR Impact with Lagged Unemployment (2-Year Lag) ---\n")
+cat("Model: ln(Units_Sold) ~ Recession + z_Annual_Avg_Rate (Current) + z_Annual_Avg_Rate_Lag2 (Previous 2 Years)\n")
+print(category_specific_impacts_mlr_lagged_2yr, n = Inf) 
+
+```
