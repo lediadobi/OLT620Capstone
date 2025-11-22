@@ -479,7 +479,7 @@ exfoilants: remain significantly counter-cyclical - 7% increase in one standard 
 Primer is now insignificant(how?)
 
 
-```{r MLR with avg price-, include=TRUE}
+```{r MLR with avg price, include=TRUE}
 combined_df_price_model <- combined_df %>%
   # Clean all names using janitor
   clean_names() %>%
@@ -532,5 +532,116 @@ cat("\n--- Category-Specific MLR Impact (Model with Price Control) ---\n")
 cat("Model: ln(Units_Sold) ~ Recession + z_Annual_Avg_Rate (Current) + ln(Avg_Price)\n")
 print(category_specific_impacts_price_model, n = Inf) 
 
+
+```
+
+#MLR Categoy-Disaggregared Dynamic Panel Model
+
+measures inertia or momentum in the data - assumes current sales are not just determined by current conditions but also how well the product sold in the immediate past.
+
+**This next part is written by AI**
+Part 1: Analysis and Interpretation of Results
+
+A. The Inertia Effect (Sales Persistence: γ)
+
+The coefficient on ln_units_sold_lag1 is the Persistence Parameter (γ). A value close to 1 means sales are highly persistent (momentum dominates); a value close to 0 means sales are volatile and reset every year.
+
+    Significant Persistence (Momentum Dominates): The coefficient for Concealer (−0.0826, P=0.0376) is the only one that is statistically significant (at the 5% level).
+
+        Interpretation: The negative sign here is unusual and implies a strong mean reversion or inventory correction. If Concealer sales were high last year, they are significantly lower this year, suggesting consumers might be stocking up, or high sales last year pull sales away from the current year.
+
+    Insignificant Persistence (Volatile Sales): For all other products, γ is close to 0 and highly insignificant. This means sales volumes for most of your cosmetics and treatments are highly volatile and not governed by habit or momentum. Each year is a new sales battle.
+
+
+B. The Actionable Macro Effects (Controlling for Price and Inertia)
+
+The following analysis is based on the coefficients for recession and z_annual_avg_rate, which now represent the pure short-run economic shock after controlling for price and sales history.
+
+lip pencil: 26.2% higher in a recesion year
+eyeshadow: one SD ride causes 14.8% drop in sales
+concealer: one SD rise casues 9.8% drop in sales
+
+C. The Price Elasticity (β3 on ln(Avg_Price))
+
+The price elasticity remains highly significant and negative across all categories (P-values are very small, e−25 to e−42), with coefficients generally ranging from −0.87 to −1.10.
+
+    Interpretation: This confirms that most of your products are price-elastic (a 1% price change results in a 1% change in the opposite direction for units sold). The only exception is Additional Treatments, Anti-Aging Creams, Cleanser, Exfoliants, Face Masks, Laser Masks, and Serums, where the price coefficient is close to zero and insignificant, meaning price changes have little effect on volume (they are inelastic or price-stable).
+
+Part 2: Strategic Summary of Actionable Insights
+
+The dynamic model confirms the primary actionable insights found in the previous MLR, reinforcing that these effects are strong enough to overcome sales inertia (which is minimal anyway for most products).
+
+lip pencil: aggressively promote as a small treat
+eyeshadow: highest risk
+concealer: high risk and it has signficant negaive inertia leading to inventory volatility
+primer: price sensitive - must pair recession marketing with competitive pricing
+
+
+```{r MLR category disaggregated dynamic panel, include=TRUE}
+combined_df_dynamic <- combined_df %>%
+  # Clean all names using janitor
+  clean_names() %>%
+  
+  # Manually rename and transform key variables
+  rename(
+    category = category,
+    recession = recession,
+    z_annual_avg_rate = z_annual_avg_rate,
+    ln_units_sold = ln_units_sold
+  ) %>%
+  mutate(
+    ln_avg_price = log(avg_price) 
+  ) %>%
+  
+  # *** CRITICAL: Create the Lagged Dependent Variable (LDV) ***
+  # Lagging must be done WITHIN each product category to track individual sales history
+  group_by(category) %>% 
+  mutate(
+    # Lag 1 of the dependent variable: ln(Units_Sold) from year t-1
+    ln_units_sold_lag1 = lag(ln_units_sold, n = 1, default = NA) 
+  ) %>%
+  ungroup()
+
+
+# --- 2. Run Dynamic Panel Model (Category-Disaggregated MLR) ---
+# This runs the full dynamic model separately for each product category.
+
+# Filter out the first year of data for each category, as the LDV will be NA.
+dynamic_model_data <- combined_df_dynamic %>%
+  filter(!is.na(ln_units_sold_lag1))
+
+category_specific_dynamic_impacts <- dynamic_model_data %>%
+  
+  # 2a. Group the data by the Category column
+  group_by(category) %>%
+  # 2b. Use nest() to prepare the data for split-apply-combine
+  nest() %>%
+  
+  # 2c. Apply the Dynamic MLR model to each nested data frame
+  mutate(
+    # FORMULA: Current Sales ~ Lagged Sales + Macro Controls + Price
+    model = map(data, ~ lm(ln_units_sold ~ ln_units_sold_lag1 + recession + z_annual_avg_rate + ln_avg_price, data = .x)),
+    results = map(model, tidy)
+  ) %>%
+  
+  # 2d. Unnest and filter the results
+  unnest(results) %>%
+  filter(term %in% c("ln_units_sold_lag1", "recession", "z_annual_avg_rate", "ln_avg_price")) %>%
+  select(
+    Category = category, 
+    Independent_Variable = term,
+    Coefficient = estimate,
+    Std_Error = std.error,
+    P_Value = p.value
+  )
+
+
+# --- 3. Display Results ---
+
+cat("\n--- Category-Disaggregated Dynamic Panel Model (Sales Inertia & Price Control) ---\n")
+cat("Model: ln(Units_Sold)_t ~ ln(Units_Sold)_{t-1} + Macro Controls + ln(Avg_Price), run per category.\n")
+print(category_specific_dynamic_impacts, n = Inf)
+
+```
 
 ```
