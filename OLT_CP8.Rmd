@@ -534,3 +534,108 @@ print(category_specific_impacts_price_model, n = Inf)
 
 
 ```
+
+## Weighted Least Squares - testing to see if this gives us any insight
+
+```{r  WLS, include=TRUE}
+# Focus on the Log_Lipstick model for WLS
+# Predictors: Annual_Avg_Rate_Z (standardized) & Recession_Year (dummy)
+
+# Run the initial Ordinary Least Squares (OLS) model
+
+ols_model <- lm(ln_units_sold ~ z_annual_avg_rate + recession, data = combined_df)
+cat("--- OLS Model Summary ---\n")
+print(summary(ols_model))
+
+# Test for Heteroscedasticity (Opt but added in since it's recommended)
+# Breusch-Pagan test (checks if the variance of the residuals is constant)
+# Note: Small p-value (e.g., < 0.05) suggests heteroscedasticity is present.
+
+cat("\n--- Breusch-Pagan Test for Heteroscedasticity ---\n")
+
+# Using bptest function from the 'lmtest' package
+
+bp_test <- bptest(ols_model)
+print(bp_test)
+
+# Null Hypothesis: The errors are homoscedastic (variance is constant)
+# Result: The P-value is 0.0479, which is just below the common significance level of 0.05
+# Conclusion: Since 0.0479 < 0.05, reject the null hypothesis; this is a weak but sufficient indicator that heteroscedasticity is present in the model, meaning variance of the errors is not constant.
+
+# Because the model did not pass the test, we have to run a WLS
+
+# Calculate the Weights for WLS
+
+fitted_vals <- fitted(ols_model)
+
+# Calculate the weights: 1 / (fitted value squared)
+combined_df$wls_weights <- 1 / (abs(fitted_vals)^2)
+
+# Handle potential infinite weights (from a fitted value of 0, which would happen if log(sales) was 0)
+combined_df$wls_weights[is.infinite(combined_df$wls_weights)] <- NA
+
+# Remove NAs introduced by weights calculation before running the model
+combined_df_wls <- combined_df %>%
+  na.omit() 
+
+# Run the WLS model
+
+wls_model <- lm(ln_units_sold ~ z_annual_avg_rate + recession,
+                data = combined_df_wls,
+                weights = wls_weights)
+
+cat("\n--- WLS Model Summary ---\n")
+print(summary(wls_model))
+
+# Compare OLS & WLS Results
+# Looking for a decrease in the Standard Error (Std. Error) for the WLS model.
+
+cat("\n--- Coefficient Comparison: OLS vs. WLS ---\n")
+comparison <- data.frame(
+  Predictor = c("(Intercept)", "z_annual_avg_rate", "recession"),
+  OLS_Estimate = coef(ols_model),
+  OLS_Std_Error = summary(ols_model)$coefficients[, 2],
+  OLS_P_Value = summary(ols_model)$coefficients[, 4],
+  WLS_Estimate = coef(wls_model),
+  WLS_Std_Error = summary(wls_model)$coefficients[, 2],
+  WLS_P_Value = summary(wls_model)$coefficients[, 4]
+)
+
+# Align the numbers neatly
+print(format(comparison, digits = 4))
+
+## Interpretation of OLS vs. WLS Model Comparison
+
+## This initial comparison uses the entire 10,000-row dataset to estimate the overall average impact of the standardized unemployment rate and the recession dummy on ln_units_sold.
+
+## The OLS Model (Baseline) Estimates:
+
+## z_annual_avg_rate: The coefficient is 0.001275, meaning that a one-standard-deviation increase in the unemployment rate is associated with a minimal +0.1275 increase in units sold (since the dv is log-transformed)
+
+## Recession: The coefficient is -0.001879, meaning that being in a recession year is associated with a minimal -0.1879 decrease in units sold
+
+## Significance (P-Value): Both predictors have very high P-values (z_annual_avg_rate: 0.9207; recession: 0.9526)
+
+## Conclusion (OLS): When pooling all product categories, there is no statistically significant relationship between the macroeconomic factors (unemployment & recession) and sales volume. The extremely low R^2 value confirms these variables explain virtually none of the variation in the overall market's sales volume
+
+## The Heteroscedasticity Check: Breusch-Pagan test result: BP = 6.0774, df = 2, p-value = 0.0479
+
+## Purpose: OLS assumes homoscedasticity (constant variance of residuals); since the P-value (0.0479) is less than the common significance level of 0.05, the assumption of homoscedasticity is violated
+
+## Result: The model exhibits heteroscedasticity, meaning the SE calculated by OLS are unreliable, and the confidence intervals & P-values might be misleading
+
+## The WLS Model (Correction) Purpose: WLS used to correct for heteroscedasticity by giving less weight to observations with larger residual variance and more weight to observations with smaller residual variance, producing more efficient (lower variance) and reliable standard errors
+
+## Comparison to OLS
+
+## Estimates (Coefficients): The coefficient values remain almost identical to OLS (ie z_annual_avg_rate shifts from 0.001275 to 0.0009838)
+
+## Standard Errors & P-Values: SE & P-values are almost identical to OLS; even after correcting for the unreliable standard errors using WLS, P-values remain extremely high (z_annual_avg_rate: $0.9388$; recession: 0.9343)
+
+## Conclusion is unchanged: the aggregated market sales volume is not statistically sensitive to macroeconomic fluctuations
+
+## Overall Takeaway for Aggregate Data: The initial model comparison is crucial because it sets the stage for the rest of the analysis
+## The Aggregate Market is Noise: The macroeconomic variables do not predict changes in sales when all products are treated as a single market
+## The Need for Granularity: This non-significant result forces the analyst to dig deeper by examining category-specific effects
+
+```
