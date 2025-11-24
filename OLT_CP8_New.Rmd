@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 ```{r libraries, include=TRUE}
-required_packages <- c("dplyr", "readr", "tidyverse", "broom", "lmtest", "janitor", "lubridate", "glmnet", "pls", "readxl", "GGally", "boot", "scales", "ggthemes", "car", "caret")
+required_packages <- c("dplyr", "readr", "tidyverse", "broom", "fixest", "lmtest","e1071", "janitor", "lubridate", "randomForest", "glmnet", "pls", "rpart", "rpart.plot", "readxl", "GGally", "boot", "scales", "ggthemes", "car", "caret")
 install.packages(setdiff(required_packages, rownames(installed.packages())))
 invisible(lapply(required_packages, library, character.only = TRUE))
 ```
@@ -767,4 +767,160 @@ highly_elastic_group %>%
     align = c('l', 'r', 'l', 'r', 'r') # Added alignment for the new column
   )
 
+```
+
+## Random Forest Complete Binary Classification
+
+Here we found that:
+
+- Sales Volatility (SD_ln_units_sold): if this value is historically high, the product is very high risk, regardless of price
+- Mean Price (Mean_ln_Avg_Price): if this value is high, the product is high risk
+- Sales Volume (Mean_ln_Units_Sold): This provides the least protection during a recession
+
+when launching a new product or reviewing an existing one, if the product category has high sales volatitlity and a high average price, it will liekly fall into the stressed category during the next economic downturn.
+
+When classifying our product categories, it was correct 17/19. 
+
+High risk (true stress and predicted correctly): Skin primer, foundation, lipstick, cleanser, highlighter, hydration products, eyeshadow. Recommendation to brand: reduce inventory, cut costs, aggressive price promotions once a recession is declared
+
+False Negatives (hidden risk): laser masks
+
+False positive (unnecessary worry): lip pencil. it actually seems like it may be better in recessions. recommendation to brandL main investment since it grows during economic downturn.
+
+
+```{r Complete Binary RF, include=TRUE}
+
+# Set seed for reproducibility
+set.seed(42) 
+
+# =========================================================================
+# I. RECESSION STRESS CLASSIFICATION (Creating the BINARY Y variable)
+# =========================================================================
+
+# --- 1. Calculate Average Sales by Recession Status ---
+sales_by_period <- combined_df %>%
+  group_by(Category, Recession) %>%
+  summarise(Avg_Units_Sold = mean(Units_Sold, na.rm = TRUE), .groups = 'drop') %>%
+  pivot_wider(names_from = Recession, values_from = Avg_Units_Sold, names_prefix = "Sales_") %>%
+  rename(Normal_Sales = Sales_0, Recession_Sales = Sales_1)
+
+# --- 2. Calculate % Change and Assign BINARY Stress Level ---
+stress_classification <- sales_by_period %>%
+  mutate(
+    Pct_Change_Recession = ((Recession_Sales - Normal_Sales) / Normal_Sales) * 100
+  ) %>%
+  # Assign the BINARY stress classification: STRESSED (<= -5%) vs. NOT_STRESSED (>-5%)
+  mutate(
+    Category_Stress_Level = case_when(
+      Pct_Change_Recession <= -5.0 ~ "1. STRESSED",
+      TRUE ~ "0. NOT_STRESSED"
+    )
+  ) %>%
+  select(Category, Pct_Change_Recession, Category_Stress_Level)
+
+print("--- Binary Stress Target Created ---")
+print(table(stress_classification$Category_Stress_Level))
+
+
+# =========================================================================
+# II. FEATURE PREPARATION (Creating the X variables)
+# =========================================================================
+
+# --- 3. Calculate Time-Invariant Product Features (X Variables) ---
+product_features <- combined_df %>%
+  group_by(Category) %>%
+  summarise(
+    Mean_ln_Avg_Price = mean(log(Avg_Price), na.rm = TRUE),
+    SD_ln_Avg_Price = sd(log(Avg_Price), na.rm = TRUE),
+    Mean_ln_Units_Sold = mean(ln_Units_Sold, na.rm = TRUE),
+    SD_ln_Units_Sold = sd(ln_Units_Sold, na.rm = TRUE),
+    Macro_Sales_Correlation = cor(ln_Units_Sold, z_Annual_Avg_Rate, use = "pairwise.complete.obs"),
+    .groups = 'drop'
+  )
+
+# --- 4. Combine Features (X) with Binary Stress Level (Y) ---
+# Create the full classification dataset, retaining Category for the final output
+classification_data_full <- product_features %>%
+  left_join(stress_classification %>% select(Category, Category_Stress_Level), by = "Category") %>%
+  drop_na() %>%
+  mutate(Category_Stress_Level = as.factor(Category_Stress_Level))
+
+# Create the training/testing dataset (without Category)
+classification_data <- classification_data_full %>% 
+  select(-Category)
+
+# =========================================================================
+# III. RANDOM FOREST (RF) CLASSIFICATION MODEL EXECUTION
+# =========================================================================
+
+# --- 5. Split Data (Training and Testing) ---
+train_index <- createDataPartition(classification_data$Category_Stress_Level, p = 0.70, list = FALSE)
+train_data <- classification_data[train_index, ]
+test_data <- classification_data[-train_index, ]
+
+print("--- Fitting Random Forest Classification Model ---")
+
+# --- 6. Fit the RF Model ---
+rf_model <- randomForest(
+  Category_Stress_Level ~ ., 
+  data = train_data, 
+  ntree = 1000, # Use a large number of trees for stability
+  importance = TRUE # Necessary for Feature Importance output
+)
+
+# --- 7. Evaluate Model Performance ---
+predictions <- predict(rf_model, newdata = test_data)
+confusion_matrix <- confusionMatrix(predictions, test_data$Category_Stress_Level)
+
+print("--- Final Confusion Matrix and Accuracy (Random Forest) ---")
+print(confusion_matrix)
+
+# --- 8. Extract Feature Importance ---
+print("--- Feature Importance Ranking ---")
+importance_df <- as.data.frame(importance(rf_model)) %>%
+  rownames_to_column("Feature") %>%
+  select(Feature, Importance = MeanDecreaseGini) %>% 
+  arrange(desc(Importance))
+
+print(importance_df)
+
+
+# =========================================================================
+# IV. FINAL CLASSIFICATION OUTPUT FOR ALL PRODUCTS
+# =========================================================================
+
+# --- 9. Predict Classification for ALL Products ---
+
+# Predict stress levels for the entire dataset using the trained model
+all_predictions <- predict(rf_model, newdata = classification_data_full)
+
+# Combine the results
+final_classification_output <- classification_data_full %>%
+  mutate(
+    Predicted_Stress_Level = all_predictions,
+    Is_Correct = ifelse(Category_Stress_Level == Predicted_Stress_Level, "✅ Correct", "❌ Incorrect")
+  ) %>%
+  left_join(stress_classification %>% select(Category, Pct_Change_Recession), by = "Category") %>%
+  select(
+    Category,
+    `True Stress` = Category_Stress_Level,
+    `Recession % Change` = Pct_Change_Recession,
+    `Predicted Stress` = Predicted_Stress_Level,
+    `Prediction Status` = Is_Correct
+  ) %>%
+  arrange(`True Stress`, `Recession % Change`)
+
+# --- 10. Generate Final Classification Table ---
+
+final_output_formatted <- final_classification_output %>%
+  mutate(
+    `Recession % Change` = paste0(round(`Recession % Change`, 2), "%")
+  ) %>%
+  knitr::kable(format = "markdown", align = "lcccc")
+
+print("--- Full Classification Status (All Products) ---")
+print("This table shows the true stress level based on the data, and the model's prediction.")
+print(final_output_formatted)
+
+print("--- Analysis Complete ---")
 ```
