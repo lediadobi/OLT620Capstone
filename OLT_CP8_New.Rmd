@@ -537,6 +537,42 @@ print(category_specific_impacts_price_model, n = Inf)
 
 ## Weighted Least Squares - testing to see if this gives us any insight
 
+Interpretation of OLS vs. WLS Model Comparison
+
+This initial comparison uses the entire dataset to estimate the overall average impact of the standardized unemployment rate and the recession dummy on ln_units_sold.
+
+The OLS Model (Baseline) Estimates:
+
+z_annual_avg_rate: The coefficient is 0.001275, meaning that a one-standard-deviation increase in the unemployment rate is associated with a minimal +0.1275 increase in units sold (since the dv is log-transformed)
+
+Recession: The coefficient is -0.001879, meaning that being in a recession year is associated with a minimal -0.1879 decrease in units sold
+
+Significance (P-Value): Both predictors have very high P-values (z_annual_avg_rate: 0.9207; recession: 0.9526)
+
+Conclusion (OLS): When pooling all product categories, there is no statistically significant relationship between the macroeconomic factors (unemployment & recession) and sales volume. The extremely low R^2 value confirms these variables explain virtually none of the variation in the overall market's sales volume
+
+The Heteroscedasticity Check: Breusch-Pagan test result: BP = 6.0774, df = 2, p-value = 0.0479
+
+Purpose: OLS assumes homoscedasticity (constant variance of residuals); since the P-value (0.0479) is less than the common significance level of 0.05, the assumption of homoscedasticity is violated
+
+Result: The model exhibits heteroscedasticity, meaning the SE calculated by OLS are unreliable, and the confidence intervals & P-values might be misleading
+
+The WLS Model (Correction) Purpose: WLS used to correct for heteroscedasticity by giving less weight to observations with larger residual variance and more weight to observations with smaller residual variance, producing more efficient (lower variance) and reliable standard errors
+
+Comparison to OLS
+
+Estimates (Coefficients): The coefficient values remain almost identical to OLS (ie z_annual_avg_rate shifts from 0.001275 to 0.0009838)
+
+Standard Errors & P-Values: SE & P-values are almost identical to OLS; even after correcting for the unreliable standard errors using WLS, P-values remain extremely high (z_annual_avg_rate: $0.9388$; recession: 0.9343)
+
+Conclusion is unchanged: the aggregated market sales volume is not statistically sensitive to macroeconomic fluctuations
+
+Overall Takeaway for Aggregate Data: The initial model comparison is crucial because it sets the stage for the rest of the analysis
+
+The Aggregate Market is Noise: The macroeconomic variables do not predict changes in sales when all products are treated as a single market
+
+The Need for Granularity: This non-significant result forces the analyst to dig deeper by examining category-specific effects
+
 ```{r  WLS, include=TRUE}
 # Focus on the Log_Lipstick model for WLS
 # Predictors: Annual_Avg_Rate_Z (standardized) & Recession_Year (dummy)
@@ -604,43 +640,25 @@ comparison <- data.frame(
 # Align the numbers neatly
 print(format(comparison, digits = 4))
 
-## Interpretation of OLS vs. WLS Model Comparison
-
-## This initial comparison uses the entire 10,000-row dataset to estimate the overall average impact of the standardized unemployment rate and the recession dummy on ln_units_sold.
-
-## The OLS Model (Baseline) Estimates:
-
-## z_annual_avg_rate: The coefficient is 0.001275, meaning that a one-standard-deviation increase in the unemployment rate is associated with a minimal +0.1275 increase in units sold (since the dv is log-transformed)
-
-## Recession: The coefficient is -0.001879, meaning that being in a recession year is associated with a minimal -0.1879 decrease in units sold
-
-## Significance (P-Value): Both predictors have very high P-values (z_annual_avg_rate: 0.9207; recession: 0.9526)
-
-## Conclusion (OLS): When pooling all product categories, there is no statistically significant relationship between the macroeconomic factors (unemployment & recession) and sales volume. The extremely low R^2 value confirms these variables explain virtually none of the variation in the overall market's sales volume
-
-## The Heteroscedasticity Check: Breusch-Pagan test result: BP = 6.0774, df = 2, p-value = 0.0479
-
-## Purpose: OLS assumes homoscedasticity (constant variance of residuals); since the P-value (0.0479) is less than the common significance level of 0.05, the assumption of homoscedasticity is violated
-
-## Result: The model exhibits heteroscedasticity, meaning the SE calculated by OLS are unreliable, and the confidence intervals & P-values might be misleading
-
-## The WLS Model (Correction) Purpose: WLS used to correct for heteroscedasticity by giving less weight to observations with larger residual variance and more weight to observations with smaller residual variance, producing more efficient (lower variance) and reliable standard errors
-
-## Comparison to OLS
-
-## Estimates (Coefficients): The coefficient values remain almost identical to OLS (ie z_annual_avg_rate shifts from 0.001275 to 0.0009838)
-
-## Standard Errors & P-Values: SE & P-values are almost identical to OLS; even after correcting for the unreliable standard errors using WLS, P-values remain extremely high (z_annual_avg_rate: $0.9388$; recession: 0.9343)
-
-## Conclusion is unchanged: the aggregated market sales volume is not statistically sensitive to macroeconomic fluctuations
-
-## Overall Takeaway for Aggregate Data: The initial model comparison is crucial because it sets the stage for the rest of the analysis
-## The Aggregate Market is Noise: The macroeconomic variables do not predict changes in sales when all products are treated as a single market
-## The Need for Granularity: This non-significant result forces the analyst to dig deeper by examining category-specific effects
-
 ```
 
 ## Price Elasticity - testing universal price elasticity (quantifies sensitivity of customers to price changes)
+
+High Risk/High Volume Products: Most popular "fun" makeup items (Lipstains, Glosses, Pencils, Lipsticks, and Eyeshadow) are the ones customers are most likely to cut back on or switch to a competitor if they perceive a price increase
+
+Most Sensitive Item: Lipstain is the most sensitive product; should be handled with the most care regarding price hikes
+
+High Confidence: P-Values (all extremely close to zero) confirm price-demand relationship is highly statistically significant for every category listed.
+
+Actionable Business Strategy***
+
+Since these products are volume-sensitive, pricing must be strategic:
+
+Avoid Straight Price Hikes: Increasing the list price will almost certainly lead to a proportionally larger drop in unit volume, decreasing revenue
+
+Leverage Promos: These items are ideal for promotional strategies (e.g., "Buy 2, Get 1 Free" or volume discounts) to clear inventory and drive traffic, as customers are clearly motivated by perceived value and discounts.
+
+Focus on Value over Price: If you must raise the effective price, do so by emphasizing luxury packaging, limited-edition bundles, or adding value (like a free small brush) rather than simply raising the unit price.
 
 ```{r  Price Elasticity, include=TRUE}
 
@@ -748,22 +766,5 @@ highly_elastic_group %>%
     col.names = c("Category", "Price Elasticity (Coefficient)", "Interpretation", "Standard Error", "P-Value"),
     align = c('l', 'r', 'l', 'r', 'r') # Added alignment for the new column
   )
-
-## High Risk/High Volume Products: Most popular "fun" makeup items (Lipstains, Glosses, Pencils, Lipsticks, and Eyeshadow) are the ones customers are most likely to cut back on or switch to a competitor if they perceive a price increase
-
-## Most Sensitive Item: Lipstain is the most sensitive product; should be handled with the most care regarding price hikes
-
-## High Confidence: P-Values (all extremely close to zero) confirm price-demand relationship is highly statistically significant for every category listed.
-
-## Actionable Business Strategy***
-
-## Since these products are volume-sensitive, pricing must be strategic:
-
-## Avoid Straight Price Hikes: Increasing the list price will almost certainly lead to a proportionally larger drop in unit volume, decreasing revenue
-
-## Leverage Promos: These items are ideal for promotional strategies (e.g., "Buy 2, Get 1 Free" or volume discounts) to clear inventory and drive traffic, as customers are clearly motivated by perceived value and discounts.
-
-## Focus on Value over Price: If you must raise the effective price, do so by emphasizing luxury packaging, limited-edition bundles, or adding value (like a free small brush) rather than simply raising the unit price.
-
 
 ```
