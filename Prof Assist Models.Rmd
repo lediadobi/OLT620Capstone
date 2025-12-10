@@ -1,0 +1,473 @@
+---
+title: "Prof Code Assist Models"
+author: "Ledia Dobi"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Set Up
+
+```{r set up}
+# packages
+library(lubridate)  # date formats
+library(tidyverse)  # data wrangling
+library(dlookr)     # EDA
+library(summarytools)  # EDA
+library(skimr)      # EDA
+library(stringr)    # text wrangling
+
+makeup <- read.csv("Makeup.csv")
+product_categories <- read.csv("Product_Categories.csv")
+skincare <- read.csv("Skincare.csv")
+unemploy <- read.csv("Unemploy.csv")
+
+
+  # LNS14000024 = Unemployment Rate for people aged 20 years and over, seasonally adjusted, from the Bureau of Labor Statistics (BLS) [Brave AI]
+
+unemploy$observation_date <- ymd(unemploy$observation_date)
+# visualize the unemployment rate
+plot( unemploy$observation_date, unemploy$LNS14000024,
+     type = "l", lwd=3, col="blue", xaxt = "n", xlab="", ylab = "Unemployment (%)")
+axis.Date(side=1, las=2, at = unemploy$observation_date,
+          labels = format(unemploy$observation_date, "%Y-%m"))
+
+# ISSUE  -- product data is annual but unemployment is monthly
+  # this might not be so bad for years where there is little change within year, but there are some large swings
+  # also taking the cuts at Dec/Jan (or between any months) oversimplifies cylical swings 
+
+  # view year-month completeness -- there is data for every month from 2000 to 2024
+unemploy |>
+  mutate(Year  = year(observation_date),
+         Month = month(observation_date)) |>
+  select(Year, Month, LNS14000024) |>
+  pivot_wider(names_from = Month, values_from = LNS14000024) |> 
+  print(n=25)
+
+# try and capture more unemployment values by year
+  # additional advantage with more measures is to not have the same variation by Year and one type of Unemployment which could limit bother models
+unemp_annual <- unemploy |>
+  mutate(Year = year(observation_date)) |>
+  group_by(Year) |>
+  summarise(
+    Unemp_Mean = mean(LNS14000024),
+    Unemp_Max  = max(LNS14000024),
+    Unemp_Min  = min(LNS14000024),
+    Unemp_SD   = sd(LNS14000024),
+    Unemp_Diff_DecJan = LNS14000024[month(observation_date) == 12] - LNS14000024[month(observation_date) == 1],
+    Unemp_Diff_Max = Unemp_Max - Unemp_Min
+  )
+unemp_annual |> print(n=25)
+
+# testing to collapse products into singular category entries.  This yields only 475 rows at 25 years with 19 categories.
+
+#*** Perplexity code assist: https://www.perplexity.ai/search/i-have-a-data-frame-called-pro-L1tacZu0SxSUlfIa8LChhw
+# vector of numeric columns to summarise (exclude Guess_Unit_Sales)
+num_cols <- setdiff(
+  names(product_categories),
+  c("Category", "Year", "Guess_Unit_Sales")
+)
+
+agg_product_categories <- product_categories %>%
+  group_by(Category, Year) %>%
+  summarise(
+    # apply multiple functions across all numeric columns
+    across(
+      all_of(num_cols),
+      .fns = list(
+        Min  = ~min(.x, na.rm = TRUE),
+        Max  = ~max(.x, na.rm = TRUE),
+        Diff = ~max(.x, na.rm = TRUE) - min(.x, na.rm = TRUE),
+        SD   = ~sd(.x,  na.rm = TRUE)
+      ),
+      .names = "{.col}_{.fn}"
+    ),
+    # carry forward constant Guess_Unit_Sales for each (Category, Year)
+    Guess_Unit_Sales = first(Guess_Unit_Sales),
+    .groups = "drop"
+  )
+
+# as.data.frame(agg_product_categories)
+
+# view data spread
+freq(agg_product_categories$Guess_Unit_Sales)
+freq(agg_product_categories$Year)
+freq(agg_product_categories$Category)
+
+agg_product_categories |> 
+  select(-Category, -Year, -Guess_Unit_Sales) |> 
+  skim()
+
+agg_product_categories |> 
+  select(-Category, -Year, -Guess_Unit_Sales) |> 
+  descr() |> 
+  t()
+
+# Nearly all Unit Sold and Dollar Sales version variables have rather large number values -- rescale these to Millions for easier reading & discussion & rename the variables with "_Mil"
+  # code prep
+backup.agg_product_categories <- agg_product_categories
+big_variables <- c( "Dollar_Sales_Min", "Dollar_Sales_Max", "Dollar_Sales_Diff", "Dollar_Sales_SD", "Units_Sold_Min", "Units_Sold_Max", "Units_Sold_Diff", "Units_Sold_SD" )
+  # rescale & rename
+agg_product_categories <- agg_product_categories |> 
+  mutate(across(all_of(big_variables), ~ .x / 1e6)) |>        # overwrite values (same column names)
+  rename_with(~ paste0(.x, "_Mil"), all_of(big_variables))    # rename those columns with _Mil at the end
+  # quality check
+str(agg_product_categories)
+    # cleanup
+rm(big_variables, backup.agg_product_categories)
+
+# create worry years for unit sales drops
+units_sold_variables = c("Units_Sold_Min_Mil",  "Units_Sold_Max_Mil",  "Units_Sold_Diff_Mil", "Units_Sold_SD_Mil")
+    # Perplexity code assist: https://www.perplexity.ai/search/i-have-some-variables-in-my-r-p_LctBLkRRGfn2t1e09htw
+
+# FLAG 5% UNIT SALES DECREASE
+agg_product_categories <- agg_product_categories |> 
+  group_by(Category)  |>                                  # group by Category
+  arrange(Year, .by_group = TRUE)  |>                    # ensure Year order within Category
+  mutate( across( all_of(units_sold_variables),
+      ~ {pct_change <- (.x - lag(.x)) / lag(.x)          # percent change vs previous year
+         flag <- ifelse(is.na(pct_change), 0L,           # first year per Category = 0
+                       ifelse(pct_change <= -0.05, 1L, 0L))  # change this line to adjust on other percentage values
+         flag },
+      .names = "Change_5_Pct_{.col}" ) ) |>             # new indicator variable name
+  ungroup()
+# FLAG 10% UNIT SALES DECREASE
+agg_product_categories <- agg_product_categories |> 
+  group_by(Category)  |>                                  # group by Category
+  arrange(Year, .by_group = TRUE)  |>                    # ensure Year order within Category
+  mutate( across( all_of(units_sold_variables),
+      ~ {pct_change <- (.x - lag(.x)) / lag(.x)          # percent change vs previous year
+         flag <- ifelse(is.na(pct_change), 0L,           # first year per Category = 0
+                       ifelse(pct_change <= -0.10, 1L, 0L))  # change this line to adjust on other percentage values
+         flag },
+      .names = "Change_10_Pct_{.col}" ) ) |>             # new indicator variable name
+  ungroup()
+# FLAG 20% UNIT SALES DECREASE
+agg_product_categories <- agg_product_categories |> 
+  group_by(Category)  |>                                  # group by Category
+  arrange(Year, .by_group = TRUE)  |>                    # ensure Year order within Category
+  mutate( across( all_of(units_sold_variables),
+      ~ {pct_change <- (.x - lag(.x)) / lag(.x)          # percent change vs previous year
+         flag <- ifelse(is.na(pct_change), 0L,           # first year per Category = 0
+                       ifelse(pct_change <= -0.20, 1L, 0L))  # change this line to adjust on other percentage values
+         flag },
+      .names = "Change_20_Pct_{.col}" ) ) |>             # new indicator variable name
+  ungroup()
+
+# view results
+str(agg_product_categories)
+
+# examine -- are there any differences from the 5%, 10%, and 20% decrease flag variables?
+  # 0 = there was no changes that year & category
+  # 1 = 5% change, but not 10% (at least should be if the math worked out)
+  # 2 = 10% change, but not 20% (at least should be if the math worked out)
+  # 3 = 20% change
+# MIN
+tmp <- agg_product_categories |> 
+  select(Change_5_Pct_Units_Sold_Min_Mil, Change_10_Pct_Units_Sold_Min_Mil, Change_20_Pct_Units_Sold_Min_Mil) |>  
+  rowSums()
+f_min <- freq(tmp, headings = FALSE, totals = FALSE, cumul = FALSE)
+# MAX
+tmp <- agg_product_categories |> 
+  select(Change_5_Pct_Units_Sold_Max_Mil, Change_10_Pct_Units_Sold_Max_Mil, Change_20_Pct_Units_Sold_Max_Mil) |>  
+  rowSums()
+f_max <- freq(tmp, headings = FALSE, totals = FALSE, cumul = FALSE)
+# DIFF
+tmp <- agg_product_categories |> 
+  select(Change_5_Pct_Units_Sold_Diff_Mil, Change_10_Pct_Units_Sold_Diff_Mil, Change_20_Pct_Units_Sold_Diff_Mil) |>   # Min
+  rowSums()
+f_diff <- freq(tmp, headings = FALSE, totals = FALSE, cumul = FALSE)
+# SD
+tmp <- agg_product_categories |> 
+  select(Change_5_Pct_Units_Sold_SD_Mil, Change_10_Pct_Units_Sold_SD_Mil, Change_20_Pct_Units_Sold_SD_Mil) |>   # Min
+  rowSums()
+f_sd <- freq(tmp, headings = FALSE, totals = FALSE, cumul = FALSE)
+
+# view distribution of flag counts by units sold change flag percentage thresholds.
+    # although there is a "barbell" effect with many values at 0 and 3, good to recall this is for all categories and years and results may differ at more granular levels.
+matrix(nrow=4, data = c(
+  round(as.vector( f_min[1:4,2]) ,1),
+  round(as.vector( f_max[1:4,2]) ,1),
+  round(as.vector(f_diff[1:4,2]) ,1),
+  round(as.vector(  f_sd[1:4,2]) ,1) ),
+  dimnames=list(c("0","1","2","3"),
+                c("Min","Max","Diff", "SD") ) )
+# cleanup
+rm(tmp, f_min, f_max, f_diff, f_sd)
+rm(units_sold_variables)
+
+
+# combine unemployment data with product data
+df <- left_join(agg_product_categories, unemp_annual, by = "Year")
+str(df)
+  # cleanup
+#rm(product_categories, unemploy, unemp_annual)
+
+#########################################
+# lazy EDA & more data prep
+
+  #dlookr functions
+overview(df)
+diagnose(df) |> print(n=Inf)
+diagnose_category(df)
+diagnose_numeric(df) |> print(n=Inf)
+diagnose_outlier(df) |> print(n=Inf)
+#df |> select(-Category) |> plot_normality()
+
+# Reminder -- Guess_Unit_Sales == assuming this was from class group chat where 1 = guessed the unit sale value and 0 = obtained unit sale values. (42/58 split)
+freq(df$Guess_Unit_Sales)
+table(df$Category, df$Guess_Unit_Sales)
+
+# missing the recession year variable I saw in CP 8
+    # according to Wikipedia: https://en.wikipedia.org/wiki/List_of_recessions_in_the_United_States
+      # March 2001 – November 2001 =  8 months
+      # December 2007 – June 2009 = 1 year 6 months
+      # February 2020 – April 2020 = 2 months
+    # these date ranges are either too small for a full year or cover more than one year
+
+# create full year recession year flag
+recession_years <- c(2001, 2007, 2008, 2009, 2020)
+df$Recession_Full_Year <- ifelse(df$Year %in% recession_years, 1, 0)
+
+# create partial year recession year flag
+df_recession <- data.frame(Year = recession_years,
+                           Recession_Months = c(8, 1, 12, 5, 2))
+df_recession$Recession_Pct_Year <- round(df_recession$Recession_Months / 12, 2) * 100
+df_recession
+
+# combine with other data
+df <- left_join(df, df_recession, by="Year")
+  # impute 0 for NA values on recession columns that didn't match in the join
+df$Recession_Months <- ifelse(is.na(df$Recession_Months), 0, df$Recession_Months)
+df$Recession_Pct_Year <- ifelse(is.na(df$Recession_Pct_Year), 0, df$Recession_Pct_Year)
+  # verify no more NA values
+sum( colSums(is.na(df)) )
+
+# checking correlations
+df |> 
+  select(-Category) |> 
+  correlate() |>  # from dlookr
+  plot()
+  # some variables have very high correlations (>0.8) with similar variables in their own groups. Will check VIF if applicable to the model type.
+  # Other very high correlations (some >0.9) are from naturally related variables, like units sold and dollar sales.
+  # Both of these issues could be addressed through variable selection and winnowing down to fewer variables.
+
+# cleanup -- only the main df
+rm(recession_years, unemploy, unemp_annual, product_categories, agg_product_categories, df_recession)
+
+###########################################################################################################################
+###########################################################################################################################
+###########################################################################################################################
+
+# data partitioning
+  # partition based on test / train -- split by time?
+  # Consider use last 3 years as test; however, there are no recession years that late.
+  # May need to randomly sample and check category balances by time -- a 75/25 split would be about n = 356 / 119
+
+  # do need to subset the data into several dataframes where each only has 1 set of Change Percent Thresholds so each one can be modeled in comparison to the others.
+  # this is how we will, at least partially if not fully, resolve the multiple model CP 8 requirements.
+
+# subset on test / train split
+train_split <- 0.75
+
+set.seed(66)
+train_rows <- sample(nrow(df) * train_split)
+
+df_train <- df[train_rows,]
+df_test <- df[-train_rows,]
+```
+
+## Model 1: Logistic Regression
+
+
+```{r logistic regression, echo=FALSE}
+
+# --- Define the Full Set of Predictors ---
+
+# 1. Recession Variables 
+recession_vars <- c("Unemp_Mean", "Recession_Full_Year") 
+
+# 2. Category Dummies (R handles this via 'Category')
+category_var <- "Category"
+
+# 3. New Aggregate Variables (Min, Max, Diff, SD, in Millions)
+agg_stats <- c(
+  "Dollar_Sales_Min_Mil", "Dollar_Sales_Max_Mil", "Dollar_Sales_Diff_Mil", "Dollar_Sales_SD_Mil",
+  "Units_Sold_Min_Mil",   "Units_Sold_Max_Mil",   "Units_Sold_Diff_Mil",   "Units_Sold_SD_Mil"
+)
+
+# 4. Interaction Term: Recession * Category
+interaction_term <- "Unemp_Mean * Category"
+
+# Combine everything into a generic formula string
+predictors <- paste(c(recession_vars, category_var, agg_stats), collapse = " + ")
+FULL_FORMULA_STRING <- paste0("DV_PLACEHOLDER ~ ", predictors, " + ", interaction_term)
+
+# DV: Change_5_Pct_Units_Sold_Min_Mil
+formula_5 <- as.formula(gsub("DV_PLACEHOLDER", "Change_5_Pct_Units_Sold_Min_Mil", FULL_FORMULA_STRING))
+
+# Fit the model using the CORRECT df_train object
+model_5_percent <- glm(formula_5, 
+                       data = df_train, # <--- CORRECTED DATA SOURCE
+                       family = binomial(link = "logit"))
+
+cat("\n--- Model 5% Drop Summary ---\n")
+summary(model_5_percent)
+
+# DV: Change_10_Pct_Units_Sold_Min_Mil
+formula_10 <- as.formula(gsub("DV_PLACEHOLDER", "Change_10_Pct_Units_Sold_Min_Mil", FULL_FORMULA_STRING))
+
+# Fit the model using the CORRECT df_train object
+model_10_percent <- glm(formula_10, 
+                        data = df_train, # <--- CORRECTED DATA SOURCE
+                        family = binomial(link = "logit"))
+
+cat("\n--- Model 10% Drop Summary ---\n")
+summary(model_10_percent)
+
+# DV: Change_20_Pct_Units_Sold_Min_Mil
+formula_20 <- as.formula(gsub("DV_PLACEHOLDER", "Change_20_Pct_Units_Sold_Min_Mil", FULL_FORMULA_STRING))
+
+# Fit the model using the CORRECT df_train object
+model_20_percent <- glm(formula_20, 
+                        data = df_train, # <--- CORRECTED DATA SOURCE
+                        family = binomial(link = "logit"))
+
+cat("\n--- Model 20% Drop Summary ---\n")
+summary(model_20_percent)
+
+# Load necessary libraries (if not already loaded)
+library(broom)
+library(dplyr)
+library(knitr) # for kable() to make nice markdown tables
+
+# --- 1. Combine Model Summaries into Tidy Data Frames ---
+
+# Extract coefficients for each model
+tidy_5 <- tidy(model_5_percent) %>% mutate(Model = "5% Drop")
+tidy_10 <- tidy(model_10_percent) %>% mutate(Model = "10% Drop")
+tidy_20 <- tidy(model_20_percent) %>% mutate(Model = "20% Drop")
+
+# Combine all three model results
+combined_results <- bind_rows(tidy_5, tidy_10, tidy_20) %>%
+  # Round values for cleaner viewing
+  mutate(
+    estimate = round(estimate, 3),
+    std.error = round(std.error, 3),
+    p.value = round(p.value, 4)
+  )
+
+# --- 2. Filter for Key Variables (Recession & Category Dummies) ---
+
+# Filter for the key terms your professor mentioned: 
+# Recession variables, Category dummies, and Interaction terms.
+key_terms <- combined_results %>%
+  filter(
+    term == "(Intercept)" |
+      grepl("Unemp_Mean", term) |              # Unemp_Mean & Interaction terms
+      grepl("Recession_Full_Year", term) |
+      grepl("Category", term)                  # Category Dummies
+  )
+
+# --- 3. Generate the Final Table View ---
+
+# Use 'select' and 'pivot_wider' to display the estimates side-by-side
+comparison_table <- key_terms %>%
+  select(term, Model, estimate, p.value) %>%
+  # Pivot the Model results so they are columns
+  pivot_wider(
+    names_from = Model,
+    values_from = c(estimate, p.value),
+    names_glue = "{Model}_{.value}"
+  ) %>%
+  arrange(term) # Sort alphabetically for easy viewing
+
+# --- 4. Print the Markdown Table ---
+
+# Use knitr::kable to print a clean markdown table that you can copy/paste
+print("--- Comparison Table of Key Coefficients (Recession & Category) ---")
+kable(comparison_table, format = "markdown")
+
+## none are statistically significant**
+
+```
+## Model 2: Classification Tree
+
+
+```{r classification tree, echo=FALSE}
+# Load necessary libraries (if not already loaded)
+library(rpart)
+library(rpart.plot)
+
+# The dependent variables must be factors for classification trees
+# We need to ensure the DVs are treated as categories, not numbers (0/1)
+df_train$Change_5_Pct_Units_Sold_Min_Mil <- as.factor(df_train$Change_5_Pct_Units_Sold_Min_Mil)
+df_train$Change_10_Pct_Units_Sold_Min_Mil <- as.factor(df_train$Change_10_Pct_Units_Sold_Min_Mil)
+df_train$Change_20_Pct_Units_Sold_Min_Mil <- as.factor(df_train$Change_20_Pct_Units_Sold_Min_Mil)
+
+# Define the simplified formula for rpart (it handles dummies/interactions automatically)
+# We include all the same predictors as the logistic regression.
+predictors <- c("Unemp_Mean", "Recession_Full_Year", "Category", 
+                "Dollar_Sales_Min_Mil", "Dollar_Sales_Max_Mil", "Dollar_Sales_Diff_Mil", "Dollar_Sales_SD_Mil",
+                "Units_Sold_Min_Mil", "Units_Sold_Max_Mil", "Units_Sold_Diff_Mil", "Units_Sold_SD_Mil")
+FORMULA_RHS <- paste(predictors, collapse = " + ")
+
+# DV: Change_5_Pct_Units_Sold_Min_Mil
+formula_tree_5 <- as.formula(paste("Change_5_Pct_Units_Sold_Min_Mil ~", FORMULA_RHS))
+
+tree_5_percent <- rpart(formula_tree_5, 
+                        data = df_train, 
+                        method = "class",  # Specifies a classification task
+                        control = rpart.control(cp = 0.01, minsplit = 20))
+
+cat("\n--- Tree Plot for 5% Drop ---\n")
+# Plot the pruned tree to see the rules
+rpart.plot(tree_5_percent, type = 4, extra = 101, fallen.leaves = TRUE, main="5% Drop Classification Tree")
+
+# DV: Change_10_Pct_Units_Sold_Min_Mil
+formula_tree_10 <- as.formula(paste("Change_10_Pct_Units_Sold_Min_Mil ~", FORMULA_RHS))
+
+tree_10_percent <- rpart(formula_tree_10, 
+                         data = df_train, 
+                         method = "class",
+                         control = rpart.control(cp = 0.01, minsplit = 20))
+
+cat("\n--- Tree Plot for 10% Drop ---\n")
+rpart.plot(tree_10_percent, type = 4, extra = 101, fallen.leaves = TRUE, main="10% Drop Classification Tree")
+
+# DV: Change_20_Pct_Units_Sold_Min_Mil
+formula_tree_20 <- as.formula(paste("Change_20_Pct_Units_Sold_Min_Mil ~", FORMULA_RHS))
+
+tree_20_percent <- rpart(formula_tree_20, 
+                         data = df_train, 
+                         method = "class",
+                         control = rpart.control(cp = 0.01, minsplit = 20))
+
+cat("\n--- Tree Plot for 20% Drop ---\n")
+rpart.plot(tree_20_percent, type = 4, extra = 101, fallen.leaves = TRUE, main="20% Drop Classification Tree")
+
+
+
+##text summaries since I can't read the plot outputs (the words are too small)
+
+cat("\n--- Text Summary of 5% Drop Classification Tree ---\n")
+print(tree_5_percent)
+
+cat("\n--- Text Summary of 10% Drop Classification Tree ---\n")
+print(tree_10_percent)
+
+cat("\n--- Variable Importance for 10% Drop Tree ---\n")
+tree_10_percent$variable.importance
+
+cat("\n--- Text Summary of 20% Drop Classification Tree ---\n")
+print(tree_20_percent)
+
+cat("\n--- Variable Importance for 20% Drop Tree ---\n")
+tree_20_percent$variable.importance
+
+```
