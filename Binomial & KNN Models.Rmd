@@ -19,14 +19,14 @@ library(dlookr)     # EDA
 library(summarytools)  # EDA
 library(skimr)      # EDA
 library(stringr)    # text wrangling
+install.packages("stargazer")
 library(stargazer)  # regression outputs
 library(car)
 ```
 
 ## Initial Data Management
 
-
-```{r pressure, include=FALSE}
+```{r data management, include=FALSE}
 makeup <- read.csv("Makeup.csv")
 product_categories <- read.csv("Product_Categories.csv")
 skincare <- read.csv("Skincare.csv")
@@ -320,7 +320,7 @@ model_binlog_5pct <- glm(data = df_train, family="binomial"(link='logit'),
     YOY_Change_Min + YOY_Change_Max + YOY_Change_SD
     )
 
-#summary(model_binlog_5pct)
+summary(model_binlog_5pct)
       
 stargazer(model_binlog_5pct, type="text")
                   
@@ -336,6 +336,12 @@ vif(model_binlog_5pct)
 
 binlog_5pct_probabilities <- predict(model_binlog_5pct, df_test, type = "response")
 
+                
+```
+
+## Logistic Regression 5% Graphs & Confusion Matrix
+
+```{r log 5pct graphs and matrix, include=TRUE}
 library(ROCR)
 m_pred <- prediction(binlog_5pct_probabilities, 
                      df_test$Change_5_Pct_Units_Sold_Diff_Mil)
@@ -356,8 +362,8 @@ binlog_5_pred01 <- ifelse(binlog_5pct_probabilities > 0.25, 1, 0)
 library(caret)
 caret::confusionMatrix(data=factor(binlog_5_pred01), 
                 reference=factor(df_test$Change_5_Pct_Units_Sold_Diff_Mil ))
-                
 ```
+
 
 ## Logistic Regression 10%
 
@@ -376,7 +382,7 @@ model_binlog_10pct <- glm(data = df_train, family="binomial"(link='logit'),
     YOY_Change_Min + YOY_Change_Max + YOY_Change_SD
     )
 
-#summary(model_binlog_10pct)
+summary(model_binlog_10pct)
       
 stargazer(model_binlog_10pct, type="text")
                   
@@ -392,6 +398,12 @@ vif(model_binlog_10pct)
 
 binlog_10pct_probabilities <- predict(model_binlog_10pct, df_test, type = "response")
 
+                
+```
+
+## Logistic Regression 10% Graphs & Confusion Matrix
+
+```{r log 10pct graphs and matrix, include=TRUE}
 library(ROCR)
 m_pred <- prediction(binlog_5pct_probabilities, 
                      df_test$Change_10_Pct_Units_Sold_Diff_Mil)
@@ -412,8 +424,67 @@ binlog_10_pred01 <- ifelse(binlog_10pct_probabilities > 0.25, 1, 0)
 library(caret)
 caret::confusionMatrix(data=factor(binlog_10_pred01), 
                 reference=factor(df_test$Change_10_Pct_Units_Sold_Diff_Mil ))
-                
 ```
+
+## Logistic Regression 20% Model
+
+```{r 20pct model, include=TRUE}
+model_binlog_20pct <- glm(data = df_train, family="binomial"(link='logit'),
+  Change_20_Pct_Units_Sold_SD_Mil ~ 
+    factor(Category) * Recession_Full_Year + 
+    Year * 
+    Recession_Full_Year +
+    Recession_Pct_Year +
+    Unemp_Mean + Unemp_Min + Unemp_Max + Unemp_SD +
+    Avg_Price_Min + Avg_Price_Max + Avg_Price_SD + 
+    Units_Sold_Min_Mil + Units_Sold_Max_Mil + Units_Sold_SD_Mil +
+    Dollar_Sales_Min_Mil + Dollar_Sales_Max_Mil + Dollar_Sales_SD_Mil +
+    YOY_Change_Min + YOY_Change_Max + YOY_Change_SD
+    )
+
+summary(model_binlog_20pct)
+      
+stargazer(model_binlog_20pct, type="text")
+                  
+# obtain odds ratio coefficients for better interpretation
+exp(coef(model_binlog_20pct))
+print(exp(cbind(Odds_Ratio = coef(model_binlog_20pct), 
+                confint(model_binlog_20pct, level=0.90))), 
+      digits=3)
+
+    
+vif(model_binlog_20pct)
+#boxplot(df$Units_Sold_Diff_Mil ~ df$Recession_Full_Year)
+
+binlog_20pct_probabilities <- predict(model_binlog_20pct, df_test, type = "response")
+
+```
+
+## Logistic Regression 20% Graphs & Confusion Matrix
+
+```{r log 20pct graphs and matrix, include=TRUE}
+library(ROCR)
+m_pred <- prediction(binlog_20pct_probabilities, 
+                     df_test$Change_20_Pct_Units_Sold_Diff_Mil)
+m_perf <- performance(m_pred, "tpr", "fpr")
+# ROC Curve
+plot(m_perf, col = "blue", lwd = 2, main = "ROC Curve")
+abline(a = 0, b = 1, col = "red", lty = 2)
+# alt ROC Curve also showing the Youden Index
+library(ROCit)
+plot(rocit(score=binlog_20pct_probabilities,
+           class=df_test$Change_20_Pct_Units_Sold_Diff_Mil))
+
+# cutpoint for confusion matrix 
+  # cut at 0.25 being close to the Youden Index
+binlog_20_pred01 <- ifelse(binlog_20pct_probabilities > 0.25, 1, 0)
+
+# view confusion matrix & model performance
+library(caret)
+caret::confusionMatrix(data=factor(binlog_20_pred01), 
+                reference=factor(df_test$Change_20_Pct_Units_Sold_Diff_Mil ))
+```
+
 
 ## KNN 5%
 
@@ -575,5 +646,87 @@ change.knn <- knn(train = knn_df_train_IV,
 
 caret::confusionMatrix(data=change.knn,
                        reference=factor(df_test$Change_10_Pct_Units_Sold_Diff_Mil ))
+
+```
+
+## KNN 20%
+
+```{r 20pct KNN, include=TRUE}
+library(FNN)
+# create a data frame with 50 rows where row number = k
+krows = 50
+k.results <- data.frame("k" = 1:krows, "RMSE" = NA, "Best_Rank" = NA)
+best.k <- -1
+error.rate <- -1
+RMSE <- -1
+best.error.rate <- 99999999
+
+# extract model IVs into a temp dataframe
+knn_df_train_IV <- df_train |> 
+  select(Year, Recession_Full_Year, Recession_Pct_Year, 
+         Unemp_Mean, Unemp_Min, Unemp_Max, Unemp_SD,
+         Avg_Price_Min , Avg_Price_Max , Avg_Price_SD , 
+         Units_Sold_Min_Mil , Units_Sold_Max_Mil , Units_Sold_SD_Mil ,
+         Dollar_Sales_Min_Mil , Dollar_Sales_Max_Mil , Dollar_Sales_SD_Mil,
+         YOY_Change_Min , YOY_Change_Max , YOY_Change_SD)
+
+# make Category into dummy variables
+library(fastDummies)
+tmp <- fastDummies::dummy_cols(df_train$Category)
+colnames(tmp) <- gsub(".data", "cat", colnames(tmp))
+colnames(tmp) <- gsub(" ", "", colnames(tmp))
+colnames(tmp) <- gsub("-", "", colnames(tmp))
+tmp <- tmp[,-1]
+# combine back with other IVs
+knn_df_train_IV <- cbind(knn_df_train_IV, tmp)
+# scale all IV values
+knn_df_train_IV <- scale(knn_df_train_IV)
+# cleanup
+rm(tmp)
+
+# repeat IV setup for the test dataframe
+knn_df_test_IV <- df_test |> 
+  select(Year, Recession_Full_Year, Recession_Pct_Year, 
+         Unemp_Mean, Unemp_Min, Unemp_Max, Unemp_SD,
+         Avg_Price_Min , Avg_Price_Max , Avg_Price_SD , 
+         Units_Sold_Min_Mil , Units_Sold_Max_Mil , Units_Sold_SD_Mil ,
+         Dollar_Sales_Min_Mil , Dollar_Sales_Max_Mil , Dollar_Sales_SD_Mil,
+         YOY_Change_Min , YOY_Change_Max , YOY_Change_SD)
+tmp <- fastDummies::dummy_cols(df_test$Category)
+colnames(tmp) <- gsub(".data", "cat", colnames(tmp))
+colnames(tmp) <- gsub(" ", "", colnames(tmp))
+colnames(tmp) <- gsub("-", "", colnames(tmp))
+tmp <- tmp[,-1]
+# combine back with other IVs
+knn_df_test_IV <- cbind(knn_df_test_IV, tmp)
+# scale all IV values
+knn_df_test_IV <- scale(knn_df_test_IV)
+# cleanup
+rm(tmp)
+  
+
+# loop to run knn and place RMSE value into data frame
+for (i in 1:krows) {
+  set.seed(42)
+  change.knn <- knn(train = knn_df_train_IV, 
+                    test = knn_df_test_IV, 
+                    cl = df_train$Change_20_Pct_Units_Sold_SD_Mil, 
+                    k=i)
+  k.results[i,"RMSE"] <- (mean((change.knn != df_test$Change_20_Pct_Units_Sold_SD_Mil)^2))^0.5
+}
+
+k.results <- k.results |> 
+  arrange(RMSE) |> 
+  mutate(Best_Rank = 1:50)
+head(k.results)
+
+# best k = 5
+change.knn <- knn(train = knn_df_train_IV, 
+                  test = knn_df_test_IV, 
+                  cl = df_train$Change_20_Pct_Units_Sold_SD_Mil, 
+                  k=5)
+
+caret::confusionMatrix(data=change.knn,
+                       reference=factor(df_test$Change_20_Pct_Units_Sold_Diff_Mil ))
 
 ```
